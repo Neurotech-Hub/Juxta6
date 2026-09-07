@@ -1,0 +1,40 @@
+# Build artifacts
+build/
+**/build/
+.twister-out*/
+
+# West / NCS local
+.west/
+
+# Compiled / linked
+*.o
+*.obj
+*.a
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE / editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python / tooling
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Misc
+*.log
+compile_commands.json

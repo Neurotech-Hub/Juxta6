@@ -1,0 +1,17 @@
+sample:
+  name: Tag BLE Connectable Adv
+  description: >
+    HIL: connectable advertising as JX_TAG. LED1 green slow blink while
+    advertising, solid green while connected. BTN1 logs only.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - bluetooth
+
+tests:
+  applications.tag-ble-adv:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

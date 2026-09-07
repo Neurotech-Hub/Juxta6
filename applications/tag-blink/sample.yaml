@@ -1,0 +1,17 @@
+sample:
+  name: Tag LED1 RGB Blink Bring-up
+  description: >
+    Phase 0 / HIL: cycles LED1 R->G->B and logs sw0 presses over RTT.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - gpio
+    - led
+
+tests:
+  applications.tag-blink:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

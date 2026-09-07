@@ -1,0 +1,18 @@
+sample:
+  name: Tag Sensors Off
+  description: >
+    HIL power fixture: probe BME688 and BMI270, then suspend both. ADXL367
+    left unconfigured. MCU idle for PPK2 quiet-sensor baseline.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - sensor
+    - power
+
+tests:
+  applications.tag-sensors-off:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

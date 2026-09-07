@@ -1,0 +1,18 @@
+sample:
+  name: Tag BTN1 Magnet Mimic
+  description: >
+    HIL fixture: BTN1 hold timing mirrors Juxta MAG_INT (3 s wake / 10 s DFU analog)
+    with LED1 RGB cues. No BLE, no System OFF.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - gpio
+    - button
+
+tests:
+  applications.tag-btn-magnet:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

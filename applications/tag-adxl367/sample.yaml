@@ -1,0 +1,18 @@
+sample:
+  name: Tag ADXL367 Motion Count
+  description: >
+    HIL: ADXL367 software motion count via XYZ delta. BMI270 and BME688 are
+    suspended so PPK2 reflects ADXL-only sensing.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - sensor
+    - adxl367
+
+tests:
+  applications.tag-adxl367:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

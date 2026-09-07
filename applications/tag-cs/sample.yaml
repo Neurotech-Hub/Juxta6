@@ -1,0 +1,18 @@
+sample:
+  name: Tag Channel Sounding Mobile-Mobile
+  description: >
+    HIL: one firmware image for both CS roles. Lower JX_ ID initiates unless
+    BTN1 forces a role override. Uses lib/juxta_range (no DK antenna overlay).
+
+common:
+  tags:
+    - tag
+    - bringup
+    - bluetooth
+    - channel_sounding
+
+tests:
+  applications.tag-cs:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

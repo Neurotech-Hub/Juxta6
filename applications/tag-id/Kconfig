@@ -1,0 +1,15 @@
+# If this file exists, CMake sets KCONFIG_ROOT to it — include Zephyr first.
+mainmenu "Zephyr Kernel Configuration"
+
+source "${ZEPHYR_BASE}/Kconfig.zephyr"
+
+menu "Juxta tag-id"
+
+config JUXTA_PROFILE_MOBILE
+	bool "Compile as mobile profile"
+	default y
+	help
+	  HIL identity fixture: log configured profile as mobile.
+	  Anchor profile Kconfig is deferred.
+
+endmenu

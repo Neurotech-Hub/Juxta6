@@ -1,0 +1,18 @@
+sample:
+  name: Tag Peer Discover
+  description: >
+    HIL: identical dual non-connectable JX_ adv + scan. Logs peer_seen / peer_lost.
+    No Channel Sounding.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - bluetooth
+    - discovery
+
+tests:
+  applications.tag-discover:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

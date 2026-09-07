@@ -1,0 +1,53 @@
+/*
+ * Project U8 MX25R6435F overlay for nRF54L15 Tag.
+ *
+ * Stock Nordic Tag DTS leaves external flash unpopulated. This project fits U8.
+ * CS is documented as P2.05 (Tag HW User Guide). SCK/MOSI/MISO follow the
+ * nRF54L15 DK MX25R6435F spi00 pinout (P2.01 / P2.02 / P2.04) — verify against
+ * the Tag schematic before the first destructive HIL run.
+ */
+
+&pinctrl {
+	spi00_default: spi00_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 2, 1)>,
+				<NRF_PSEL(SPIM_MOSI, 2, 2)>,
+				<NRF_PSEL(SPIM_MISO, 2, 4)>;
+		};
+	};
+
+	spi00_sleep: spi00_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 2, 1)>,
+				<NRF_PSEL(SPIM_MOSI, 2, 2)>,
+				<NRF_PSEL(SPIM_MISO, 2, 4)>;
+			low-power-enable;
+		};
+	};
+};
+
+&spi00 {
+	status = "okay";
+	cs-gpios = <&gpio2 5 GPIO_ACTIVE_LOW>;
+	pinctrl-0 = <&spi00_default>;
+	pinctrl-1 = <&spi00_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	mx25r64: mx25r6435f@0 {
+		compatible = "jedec,spi-nor";
+		status = "okay";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		jedec-id = [c2 28 17];
+		size = <67108864>;
+		has-dpd;
+		t-enter-dpd = <10000>;
+		t-exit-dpd = <35000>;
+	};
+};
+
+/ {
+	aliases {
+		spi-flash0 = &mx25r64;
+	};
+};

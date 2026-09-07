@@ -1,0 +1,18 @@
+sample:
+  name: Tag System OFF BTN1 Wake
+  description: >
+    HIL power fixture: enter System OFF with BTN1 armed as wake; on OFF wake
+    light LED1 green briefly then re-shelf.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - power
+    - gpio
+
+tests:
+  applications.tag-sysoff:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

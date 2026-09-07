@@ -1,0 +1,17 @@
+sample:
+  name: Tag External Flash Last-Sector Test
+  description: >
+    HIL: probe MX25R6435F (project-fitted U8) and erase/write/verify the last
+    erase sector only. Requires boards overlay enabling mx25r64.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - flash
+
+tests:
+  applications.tag-flash:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console
