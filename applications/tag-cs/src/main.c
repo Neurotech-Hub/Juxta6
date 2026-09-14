@@ -2,8 +2,8 @@
  * Mobile↔mobile Channel Sounding HIL — one image, both roles.
  *
  * Arbitration: lower JX_ name initiates (connects as central).
- * BTN1 short press cycles role override: auto -> force_initiator ->
- * force_reflector -> auto. Lets either physical tag exercise both CS roles.
+ * BTN1 short press cycles role override: auto (green) -> force_initiator (blue) ->
+ * force_reflector (red) -> auto. Lets either physical tag exercise both CS roles.
  *
  * Nordic CS/RAS calls live only in lib/juxta_range.
  */
@@ -33,7 +33,8 @@ LOG_MODULE_REGISTER(tag_cs, LOG_LEVEL_INF);
 
 #define SCAN_WINDOW_MS 400U
 #define SCAN_CYCLE_MS 800U
-#define COOLDOWN_MS 3000U
+/* Extra settle after multi-procedure CS + config remove on both peers. */
+#define COOLDOWN_MS 5000U
 
 #if !DT_NODE_EXISTS(DT_NODELABEL(led1_red)) || !DT_NODE_EXISTS(DT_NODELABEL(led1_green)) ||       \
 	!DT_NODE_EXISTS(DT_NODELABEL(led1_blue))
@@ -82,22 +83,44 @@ static void leds_off(void)
 	(void)gpio_pin_set_dt(&led_b, 0);
 }
 
-static void led_role_initiator(void)
+/* Override / role cue: green=auto, blue=initiator, red=reflector. */
+static void led_role_auto(void)
 {
 	leds_off();
 	(void)gpio_pin_set_dt(&led_g, 1);
 }
 
-static void led_role_reflector(void)
+static void led_role_initiator(void)
 {
 	leds_off();
 	(void)gpio_pin_set_dt(&led_b, 1);
 }
 
-static void led_fail(void)
+static void led_role_reflector(void)
 {
 	leds_off();
 	(void)gpio_pin_set_dt(&led_r, 1);
+}
+
+static void led_show_override(void)
+{
+	int ov = (int)atomic_get(&role_override);
+
+	if (ov == ROLE_FORCE_INITIATOR) {
+		led_role_initiator();
+	} else if (ov == ROLE_FORCE_REFLECTOR) {
+		led_role_reflector();
+	} else {
+		led_role_auto();
+	}
+}
+
+/* Fail: white (all channels) so red remains reflector. */
+static void led_fail(void)
+{
+	(void)gpio_pin_set_dt(&led_r, 1);
+	(void)gpio_pin_set_dt(&led_g, 1);
+	(void)gpio_pin_set_dt(&led_b, 1);
 }
 
 static void extract_name(struct net_buf_simple *ad_buf, char *dev_name, size_t name_sz)
@@ -156,6 +179,7 @@ static void button_pressed(const struct device *dev, struct gpio_callback *cb, u
 
 	ov = (ov + 1) % 3;
 	atomic_set(&role_override, ov);
+	led_show_override();
 	LOG_INF("role_override=%s",
 		ov == ROLE_AUTO	 ? "auto(lower_id_initiates)"
 		: ov == ROLE_FORCE_INITIATOR ? "force_initiator"
@@ -277,6 +301,8 @@ static void run_as_initiator(void)
 	if (err) {
 		LOG_ERR("bt_conn_le_create (%d)", err);
 		led_fail();
+		k_sleep(K_MSEC(1000));
+		led_show_override();
 		atomic_set(&busy, 0);
 		atomic_set(&peer_ready, 0);
 		(void)advertising_start();
@@ -292,6 +318,8 @@ static void run_as_initiator(void)
 		bt_conn_unref(conn);
 		default_conn = NULL;
 		led_fail();
+		k_sleep(K_MSEC(1000));
+		led_show_override();
 		atomic_set(&busy, 0);
 		atomic_set(&peer_ready, 0);
 		(void)advertising_start();
@@ -299,9 +327,11 @@ static void run_as_initiator(void)
 	}
 
 	err = juxta_range_as_initiator(conn, &result);
-	LOG_INF("range result local=%s peer=%s role=initiator distance_m=%.3f quality=0x%04x "
-		"status=%d",
-		local_name, peer_name, (double)result.distance_m, result.quality, result.status);
+	LOG_INF("range result local=%s peer=%s role=initiator distance_m=%.3f "
+		"ifft=%.3f phase_slope=%.3f rtt=%.3f samples=%u quality=0x%04x status=%d",
+		local_name, peer_name, (double)result.distance_m, (double)result.ifft_m,
+		(double)result.phase_slope_m, (double)result.rtt_m, result.samples, result.quality,
+		result.status);
 
 	if (err != 0 || result.status != 0) {
 		led_fail();
@@ -313,6 +343,7 @@ static void run_as_initiator(void)
 	/* default_conn released in disconnected_cb */
 
 	leds_off();
+	led_show_override();
 	atomic_set(&peer_ready, 0);
 	atomic_set(&busy, 0);
 	k_sleep(K_MSEC(COOLDOWN_MS));
@@ -338,7 +369,7 @@ static void run_as_reflector(void)
 		LOG_WRN("reflector: no inbound connection");
 		led_fail();
 		k_sleep(K_MSEC(1000));
-		leds_off();
+		led_show_override();
 		atomic_set(&peer_ready, 0);
 		atomic_set(&busy, 0);
 		return;
@@ -360,6 +391,7 @@ static void run_as_reflector(void)
 	}
 
 	leds_off();
+	led_show_override();
 	atomic_set(&peer_ready, 0);
 	atomic_set(&busy, 0);
 	k_sleep(K_MSEC(COOLDOWN_MS));
@@ -396,8 +428,10 @@ int main(void)
 	}
 
 	LOG_INF("tag-cs started local_id=%s profile=mobile", local_name);
-	LOG_INF("BTN1 cycles role_override: auto | force_initiator | force_reflector");
+	LOG_INF("BTN1 cycles role_override: auto(green) | force_initiator(blue) | force_reflector(red)");
 	LOG_INF("Do not use nRF54L15 DK CS antenna overlays on Tag TWI pins");
+
+	led_show_override();
 
 	err = advertising_start();
 	if (err) {

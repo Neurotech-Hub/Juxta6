@@ -4,6 +4,19 @@ Wraps Nordic Channel Sounding + Ranging Service (RAS). Applications must not cal
 `bt_le_cs_*` / RAS APIs directly — use `juxta_range_as_initiator` /
 `juxta_range_as_reflector`.
 
+Aligned with **NCS ≥ 3.3.4** `channel_sounding/ras_initiator` defaults:
+
+- CS mode **2 + sub-mode 1** (PBR + RTT)
+- Prefer **realtime ranging data** when the peer RRSP advertises it (Nordic default);
+  fall back to on-demand RD + slower procedure interval
+- Continuous procedures (`max_procedure_count = 0`)
+- Distance-estimation sliding window of **9** samples with **median** per method
+  (`ifft`, `phase_slope`, `rtt`); `distance_m` follows Nordic `best` priority
+  (ifft → phase_slope → rtt)
+- `bt_le_cs_remove_config()` before create and on teardown (avoids stale config
+  ID / alternating HCI `0x20`)
+- RAS parse path: `bt_ras_rreq_rd_subevent_data_parse` + `cs_de_calc`
+
 ## Required application Kconfig (see `applications/tag-cs/prj.conf`)
 
 - `CONFIG_BT_CHANNEL_SOUNDING=y`

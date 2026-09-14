@@ -1,0 +1,18 @@
+sample:
+  name: Tag RSSI Adv Dual-Antenna
+  description: >
+    HIL: connectionless advertiser/scanner roles (BTN1). Scanner logs every JX_
+    adv packet with RSSI, seq, and RX antenna (ANT1/ANT2 time-mux). No CS/RAS.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - bluetooth
+    - rssi
+
+tests:
+  applications.tag-rssi-adv:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

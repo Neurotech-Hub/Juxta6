@@ -1,0 +1,12 @@
+/*
+ * tag-rssi-adv: reclaim SKY13348 control pins from stock ANT1 gpio-hogs.
+ *
+ * Stock nrf54l15tag_cpuapp_common.dtsi forces ANT1 via antenna_switch_v1/v2
+ * hogs on gpio1 9/10. Delete those so the app can time-multiplex ANT1/ANT2.
+ * Do not apply nRF54L15 DK CS antenna overlays (those GPIOs are Tag TWI).
+ */
+
+&gpio1 {
+	/delete-node/ antenna_switch_v1;
+	/delete-node/ antenna_switch_v2;
+};

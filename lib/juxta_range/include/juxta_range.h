@@ -26,8 +26,16 @@ extern "C" {
 #define JUXTA_RANGE_QUALITY_OK 1U
 
 struct juxta_range_result {
-	/** Estimated distance in meters (NaN if not available). */
+	/** Median best-effort distance in meters (NaN if not available). */
 	float distance_m;
+	/** Median phase-slope estimate (meters), NaN if none. */
+	float phase_slope_m;
+	/** Median IFFT estimate (meters), NaN if none. */
+	float ifft_m;
+	/** Median RTT estimate (meters), NaN if none. */
+	float rtt_m;
+	/** Number of good CS DE samples that entered the median window. */
+	uint8_t samples;
 	/** SDK/quality metadata: JUXTA_RANGE_QUALITY_* or packed SDK fields. */
 	uint16_t quality;
 	/** 0 = success; negative errno on failure (distinguishable from success). */
@@ -36,8 +44,8 @@ struct juxta_range_result {
 
 /**
  * Run Channel Sounding as initiator on an existing ACL connection.
- * Performs security/MTU/RAS discovery/CS procedure as needed, blocks until one
- * distance estimate or timeout.
+ * Performs security/MTU/RAS discovery/CS procedure as needed, collects a
+ * Nordic-style sliding window of distance estimates, and returns medians.
  *
  * @param conn Connected peer (central role expected).
  * @param out  Result storage (required).
