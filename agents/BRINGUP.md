@@ -20,7 +20,7 @@ Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
 
 | # | App | Expect |
 | --- | --- | --- |
-| 1 | `tag-blink` | LED1 R→G→B; BTN1 logs |
+| 1 | `tag-blink` | LED1 R→G→B→W; BTN1 logs |
 | 2 | `tag-btn-magnet` | Hold &lt;3 s reject; 3–10 s green slow; ≥10 s blue fast |
 | 3 | `tag-sysoff` | System OFF; BTN1 wakes then re-shelves |
 | 4 | `tag-sensors-off` | BMI + BME probe then suspend |

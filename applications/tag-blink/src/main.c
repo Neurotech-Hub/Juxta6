@@ -4,7 +4,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-LOG_MODULE_REGISTER(tag_blink, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(tag_blink, LOG_LEVEL_DBG);
 
 #define COLOR_PERIOD_MS 500U
 
@@ -99,11 +99,11 @@ int main(void)
 		return ret;
 	}
 
-	LOG_INF("tag-blink started (LED1 R->G->B cycle %u ms, sw0 logs on press)", COLOR_PERIOD_MS);
+	LOG_INF("tag-blink started (LED1 R->G->B->W cycle %u ms, sw0 logs on press)", COLOR_PERIOD_MS);
 
 	while (1) {
 		leds_all_off();
-		switch (color % 3U) {
+		switch (color % 4U) {
 		case 0U:
 			(void)gpio_pin_set_dt(&led_r, 1);
 			LOG_DBG("LED1 red");
@@ -112,9 +112,15 @@ int main(void)
 			(void)gpio_pin_set_dt(&led_g, 1);
 			LOG_DBG("LED1 green");
 			break;
-		default:
+		case 2U:
 			(void)gpio_pin_set_dt(&led_b, 1);
 			LOG_DBG("LED1 blue");
+			break;
+		default:
+			(void)gpio_pin_set_dt(&led_r, 1);
+			(void)gpio_pin_set_dt(&led_g, 1);
+			(void)gpio_pin_set_dt(&led_b, 1);
+			LOG_DBG("LED1 white");
 			break;
 		}
 		color++;

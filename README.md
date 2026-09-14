@@ -76,7 +76,7 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 
 | Order | App | Intent |
 | --- | --- | --- |
-| 1 | `tag-blink` | LED1 R→G→B; BTN1 press log |
+| 1 | `tag-blink` | LED1 R→G→B→W; BTN1 press log |
 | 2 | `tag-btn-magnet` | BTN1 mimics MAG_INT (3 s / 10 s) |
 | 3 | `tag-sysoff` | System OFF + BTN1 wake |
 | 4 | `tag-sensors-off` | Probe then suspend BMI + BME |
