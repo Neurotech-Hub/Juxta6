@@ -38,6 +38,28 @@ static const struct bt_data ad[] = {
 	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
 };
 
+static int start_advertising(void)
+{
+	int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
+
+	if (err) {
+		LOG_ERR("bt_le_adv_start failed (%d)", err);
+	} else {
+		LOG_INF("Advertising as %s", CONFIG_BT_DEVICE_NAME);
+	}
+
+	return err;
+}
+
+/* bt_le_adv_start from disconnected() returns -ENOMEM; defer to workqueue. */
+static void adv_restart_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	(void)start_advertising();
+}
+
+static K_WORK_DEFINE(adv_restart_work, adv_restart_work_handler);
+
 static void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	ARG_UNUSED(dev);
@@ -65,16 +87,12 @@ static void connected_cb(struct bt_conn *conn, uint8_t err)
 static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
-	int err;
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 	atomic_set(&connected, 0);
 	LOG_INF("Disconnected %s (reason 0x%02x) — restarting adv", addr, reason);
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
-	if (err) {
-		LOG_ERR("Advertising restart failed (%d)", err);
-	}
+	(void)k_work_submit(&adv_restart_work);
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
@@ -122,13 +140,12 @@ int main(void)
 		return err;
 	}
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = start_advertising();
 	if (err) {
-		LOG_ERR("bt_le_adv_start failed (%d)", err);
 		return err;
 	}
 
-	LOG_INF("tag-ble-adv started — advertising as %s", CONFIG_BT_DEVICE_NAME);
+	LOG_INF("tag-ble-adv started");
 
 	while (1) {
 		if (atomic_get(&connected) == 0) {
