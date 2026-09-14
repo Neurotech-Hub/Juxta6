@@ -52,7 +52,8 @@ Architecture brief: [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md).
     ├── tag-blink/ … tag-ble-adv/  # HIL-01..07 hardware fixtures
     ├── tag-id/                    # HIL-08 identity
     ├── tag-discover/              # HIL-09 two-tag discovery
-    └── tag-cs/                    # HIL-10 mobile↔mobile CS
+    ├── tag-cs/                    # HIL-10 mobile↔mobile CS
+    └── tag-rssi-adv/              # HIL-11 adv RSSI + dual RX antenna
 ```
 
 ## Build and flash (user)
@@ -76,7 +77,7 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 
 | Order | App | Intent |
 | --- | --- | --- |
-| 1 | `tag-blink` | LED1 R→G→B; BTN1 press log |
+| 1 | `tag-blink` | LED1 R→G→B→W; BTN1 press log |
 | 2 | `tag-btn-magnet` | BTN1 mimics MAG_INT (3 s / 10 s) |
 | 3 | `tag-sysoff` | System OFF + BTN1 wake |
 | 4 | `tag-sensors-off` | Probe then suspend BMI + BME |
@@ -90,7 +91,8 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | --- | --- | --- |
 | 8 | `tag-id` | hwinfo + BLE ID → `JX_XXXXXX`; mobile profile |
 | 9 | `tag-discover` | Identical dual adv+scan; `peer_seen` / `peer_lost` (no CS) |
-| 10 | `tag-cs` | One image, both CS roles; lower ID initiates; BTN1 role override |
+| 10 | `tag-cs` | One image, both CS roles; LED green=auto / blue=initiator / red=reflector; BTN1 override |
+| 11 | `tag-rssi-adv` | Advertiser(red)/scanner(blue); per-packet RSSI + seq + rx_ant (ANT1/ANT2); no CS |
 
 **Two-tag lab:** flash the same image to both tags. CS distance is logged for characterization — no accuracy gate yet. Do not copy DK CS antenna overlays onto Tag.
 

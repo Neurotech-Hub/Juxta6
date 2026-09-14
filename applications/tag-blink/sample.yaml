@@ -1,7 +1,7 @@
 sample:
   name: Tag LED1 RGB Blink Bring-up
   description: >
-    Phase 0 / HIL: cycles LED1 R->G->B and logs sw0 presses over RTT.
+    Phase 0 / HIL: cycles LED1 R->G->B->W and logs sw0 presses over RTT.
 
 common:
   tags:

@@ -43,8 +43,10 @@ static void suspend_unused(const struct device *dev, const char *name)
 	ret = pm_device_action_run(dev, PM_DEVICE_ACTION_SUSPEND);
 	if (ret != 0 && ret != -ENOTSUP && ret != -ENOSYS) {
 		LOG_WRN("[SUSPEND] %s rc=%d", name, ret);
+	} else if (ret == -ENOTSUP || ret == -ENOSYS) {
+		LOG_WRN("[SUSPEND] %s PM not supported (rc=%d) — driver may still idle", name, ret);
 	} else {
-		LOG_INF("[SUSPEND] %s ok (rc=%d)", name, ret);
+		LOG_INF("[SUSPEND] %s ok", name);
 	}
 }
 

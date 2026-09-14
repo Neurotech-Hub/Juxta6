@@ -92,6 +92,9 @@ int main(void)
 		return err;
 	}
 
+	/* Let HCI boot logs drain so HIL identity lines are not dropped on RTT. */
+	k_sleep(K_MSEC(50));
+
 	log_bt_addrs();
 
 	err = juxta_id_fill_from_bt(jx_name, sizeof(jx_name));
@@ -110,7 +113,7 @@ int main(void)
 	k_sleep(K_MSEC(BOOT_LED_MS));
 	(void)gpio_pin_set_dt(&led_g, 0);
 
-	LOG_INF("tag-id done (idle)");
+	LOG_INF("tag-id done (idle) juxta_name=%s", jx_name);
 	while (1) {
 		k_sleep(K_SECONDS(60));
 	}
