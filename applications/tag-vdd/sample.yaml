@@ -1,0 +1,16 @@
+sample:
+  name: Tag VDD Battery
+  description: >
+    HIL: SAADC internal VDD (CR2032). Logs vdd_mv and rough batt_pct; optional adv droop.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - adc
+
+tests:
+  applications.tag-vdd:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

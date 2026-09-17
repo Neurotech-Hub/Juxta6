@@ -1,0 +1,28 @@
+/*
+ * tag-vdd: measure internal VDD via SAADC (coin-cell / direct supply).
+ * Match Nordic nrf54l15tag fuel-gauge overlay: GAIN_1_4 + 0.9 V internal
+ * reference + 14-bit (NRF_SAADC_VDD is scaled; GAIN_1 reads ~VDD/4).
+ */
+
+/ {
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <14>;
+		zephyr,oversampling = <8>;
+		zephyr,vref-mv = <900>;
+		zephyr,input-positive = <NRF_SAADC_VDD>;
+	};
+};

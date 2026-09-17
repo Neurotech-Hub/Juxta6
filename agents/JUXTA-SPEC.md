@@ -48,7 +48,7 @@ Sensor interfaces are:
 - ADXL367: TWI address 0x1D
 - BMI270: defer for now
 
-For this Juxta build, assume the **MX25R6435F external flash is populated and available** even if it is not fitted on the stock Nordic tag.
+For this Juxta build, assume external SPI NOR on U8 is populated. Project modules use **MX25L3233F** (32 Mbit / 4 MiB); stock Nordic BOM may list MX25R6435 (not fitted).
 
 ## Core design requirement
 
@@ -184,7 +184,7 @@ Sensor Layer
 
 Encounter Logger
     |
-    +-- MX25R6435F storage
+    +-- MX25L3233F storage (4 MiB)
     +-- timestamp
     +-- peer ID
     +-- distance
@@ -243,7 +243,7 @@ When many tags cluster, arbitration alone is not enough: combine it with a small
 
 ### External flash
 
-Because MX25R6435F is assumed populated:
+Because MX25L3233F is assumed populated (4 MiB):
 
 - flash responds correctly
 - erase succeeds

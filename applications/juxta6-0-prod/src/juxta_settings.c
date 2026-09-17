@@ -1,0 +1,160 @@
+#include "juxta_settings.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <zephyr/logging/log.h>
+#include <zephyr/settings/settings.h>
+
+LOG_MODULE_REGISTER(juxta_settings, LOG_LEVEL_INF);
+
+#define LOG_CACHE_MAGIC 0x4A584C43U /* JXLC */
+#define LOG_CACHE_VERSION 1U
+
+static struct juxta_settings current;
+static struct juxta_log_cache current_log_cache;
+static bool loaded_log_cache;
+
+void juxta_settings_defaults(struct juxta_settings *settings, const char *device_id)
+{
+	memset(settings, 0, sizeof(*settings));
+	if (device_id != NULL) {
+		(void)snprintf(settings->subject_id, sizeof(settings->subject_id), "%s", device_id);
+	}
+	settings->adv_interval_s = JUXTA_DEFAULT_ADV_INTERVAL_S;
+	settings->scan_interval_s = JUXTA_DEFAULT_SCAN_INTERVAL_S;
+	settings->vitals_interval_s = JUXTA_DEFAULT_VITALS_INTERVAL_S;
+	settings->inactivity_multiplier = JUXTA_DEFAULT_INACTIVITY_MULTIPLIER;
+	settings->motion_logging = 1U;
+}
+
+static int settings_set_handler(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg)
+{
+	if (strcmp(name, "current") == 0) {
+		if (len != sizeof(current)) {
+			return -EINVAL;
+		}
+
+		ssize_t n = read_cb(cb_arg, &current, sizeof(current));
+
+		return (n == (ssize_t)sizeof(current)) ? 0 : -EINVAL;
+	}
+
+	if (strcmp(name, "log_cache") == 0) {
+		if (len != sizeof(current_log_cache)) {
+			LOG_WRN("Ignoring log cache size %zu expected %zu", len,
+				sizeof(current_log_cache));
+			return -EINVAL;
+		}
+
+		ssize_t n = read_cb(cb_arg, &current_log_cache, sizeof(current_log_cache));
+
+		if (n >= 0 && current_log_cache.magic == LOG_CACHE_MAGIC &&
+		    current_log_cache.version == LOG_CACHE_VERSION &&
+		    current_log_cache.file_count <= JUXTA_MAX_FILES) {
+			loaded_log_cache = true;
+		}
+		return (n >= 0) ? 0 : (int)n;
+	}
+
+	return -ENOENT;
+}
+
+SETTINGS_STATIC_HANDLER_DEFINE(juxta, "juxta", NULL, settings_set_handler, NULL, NULL);
+
+int juxta_settings_init(const char *device_id)
+{
+	int err = settings_subsys_init();
+
+	if (err) {
+		return err;
+	}
+
+	juxta_settings_defaults(&current, device_id);
+	err = settings_load_subtree("juxta");
+	if (err && err != -ENOENT) {
+		LOG_WRN("settings_load (%d) — using defaults", err);
+	}
+
+	if (current.subject_id[0] == '\0' && device_id != NULL) {
+		(void)snprintf(current.subject_id, sizeof(current.subject_id), "%s", device_id);
+	}
+
+	LOG_INF("settings subject=%s scan=%us adv=%us vitals=%us motion=%u", current.subject_id,
+		current.scan_interval_s, current.adv_interval_s, current.vitals_interval_s,
+		current.motion_logging);
+	return 0;
+}
+
+const struct juxta_settings *juxta_settings_get(void)
+{
+	return &current;
+}
+
+int juxta_settings_update(const struct juxta_settings *settings)
+{
+	if (settings == NULL) {
+		return -EINVAL;
+	}
+
+	current = *settings;
+	if (current.adv_interval_s > JUXTA_MAX_BLE_INTERVAL_S) {
+		current.adv_interval_s = JUXTA_MAX_BLE_INTERVAL_S;
+	}
+	if (current.scan_interval_s > JUXTA_MAX_BLE_INTERVAL_S) {
+		current.scan_interval_s = JUXTA_MAX_BLE_INTERVAL_S;
+	}
+	if (current.inactivity_multiplier < 1U) {
+		current.inactivity_multiplier = 1U;
+	}
+	if (current.inactivity_multiplier > JUXTA_MAX_INACTIVITY_MULTIPLIER) {
+		current.inactivity_multiplier = JUXTA_MAX_INACTIVITY_MULTIPLIER;
+	}
+
+	return settings_save_one("juxta/current", &current, sizeof(current));
+}
+
+int juxta_settings_load_log_cache(struct juxta_log_cache *cache)
+{
+	if (cache == NULL) {
+		return -EINVAL;
+	}
+	if (!loaded_log_cache) {
+		return -ENOENT;
+	}
+
+	*cache = current_log_cache;
+	return 0;
+}
+
+int juxta_settings_save_log_cache(const struct juxta_log_cache *cache)
+{
+	static struct juxta_log_cache next;
+	int rc;
+
+	if (cache == NULL || cache->file_count > JUXTA_MAX_FILES) {
+		return -EINVAL;
+	}
+
+	next = *cache;
+	next.magic = LOG_CACHE_MAGIC;
+	next.version = LOG_CACHE_VERSION;
+
+	rc = settings_save_one("juxta/log_cache", &next, sizeof(next));
+	if (rc != 0) {
+		LOG_WRN("settings_save_one log cache failed: %d", rc);
+		return rc;
+	}
+
+	current_log_cache = next;
+	loaded_log_cache = true;
+	return 0;
+}
+
+int juxta_settings_clear_log_cache(void)
+{
+	memset(&current_log_cache, 0, sizeof(current_log_cache));
+	loaded_log_cache = false;
+	return settings_delete("juxta/log_cache");
+}

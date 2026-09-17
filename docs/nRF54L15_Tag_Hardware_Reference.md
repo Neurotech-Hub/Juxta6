@@ -2,7 +2,7 @@
 
 > **Scope:** PCA20072, hardware/BOM v1.0.0. This is a firmware-facing hardware contract distilled from the Nordic **nRF54L15 Tag Hardware User Guide v1.0.0** and the attached **PCA20072 BOM v1.0.0**.
 >
-> **Project-specific override:** The stock BOM marks **U8 / MX25R6435FZBIH3** as *Not Fitted*. For this project, **assume U8 is populated before use**. Firmware and tests should therefore treat the external flash as required hardware unless explicitly running against an unmodified stock Nordic tag.
+> **Project-specific override:** The stock BOM marks **U8 / MX25R6435FZBIH3** as *Not Fitted*. Project modules populate U8 with **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB, SPI). Firmware and tests treat external flash as required unless running an unmodified stock Nordic tag.
 
 ## 1. Agent quick reference
 
@@ -21,12 +21,13 @@ soc:
 
 project_required_population:
   U8:
-    part: MX25R6435FZBIH3
-    function: 64-Mbit serial multi-I/O flash
-    logical_capacity: 8_MiB
-    interface: QSPI
+    part: MX25L3233FZBI-08G-TR
+    stock_bom_part_note: MX25R6435FZBIH3 (Not Fitted on stock Nordic)
+    function: 32-Mbit serial flash (project-fitted)
+    logical_capacity: 4_MiB
+    interface: SPI (P2.01/02/04, CS P2.05)
     stock_bom_status: Not Fitted
-    project_status: Fitted before use
+    project_status: Fitted (MX25L3233)
 
 motion_sensors:
   low_power_accelerometer:
@@ -121,7 +122,7 @@ The tag is a compact nRF54L15 firmware-development platform with:
 | U4         | BMI270                    | 6-axis IMU                                  | Fitted                           |
 | U5         | ADXL367BCCZ               | Micropower 3-axis accelerometer             | Fitted                           |
 | U6         | SKY13348-374LF            | 50 MHz–6 GHz SPDT RF switch                 | Fitted                           |
-| U8         | MX25R6435FZBIH3           | 64-Mbit serial multi-I/O flash              | **Fitted by project assumption** |
+| U8         | MX25L3233FZBI-08G-TR      | 32-Mbit SPI flash (project)                 | **Fitted (project)**             |
 | A1, A2     | 2450AT18D0100             | 2.45 GHz chip antennas                      | Fitted                           |
 | LED1       | APHF1608LSEEQBDZGKC       | RGB LED                                     | Fitted                           |
 | SW1 / BTN1 | L-KLS7-TS3402-2.5-250-B-T | User pushbutton                             | Fitted                           |
@@ -145,7 +146,7 @@ The tag is a compact nRF54L15 firmware-development platform with:
 | Q1         | TEMT6200FX01                  | 550 nm top-view phototransistor   | Not fitted                             |
 | Q2, Q3     | RV2C010UNT2L                  | N-channel MOSFETs, 20 V / 1 A     | Not fitted                             |
 | P2         | 1×3, 2.54 mm header footprint | External power/header access      | Header not fitted; pads remain usable  |
-| U8         | MX25R6435FZBIH3               | External serial flash             | **Stock: not fitted; project: fitted** |
+| U8         | MX25R6435FZBIH3 (stock) / MX25L3233 (project) | External serial flash | **Stock: not fitted; project: L3233 fitted** |
 
 
 Do not enable or test optional peripherals by default unless the particular assembled hardware variant is known to populate them.
@@ -217,27 +218,26 @@ BOM implementation notes:
 
 
 
-### MX25R6435F
+### External flash U8 (project: MX25L3233F)
 
 - **Reference:** U8.
 - **Manufacturer:** Macronix.
-- **Exact BOM part:** `MX25R6435FZBIH3`.
+- **Project part:** `MX25L3233FZBI-08G-TR` (32 Mbit = **4 MiB**).
+- **Stock Nordic BOM part (not fitted):** `MX25R6435FZBIH3` (64 Mbit / 8 MiB).
 - **Package:** USON-8.
-- **Description:** ultra-low-power 64-Mbit serial multi-I/O flash.
-- **Capacity:** 64 Mbit = **8 MiB**.
-- **Board interface:** QSPI / serial multi-I/O.
-- **Chip select:** `P2.05` is documented as the QSPI CS GPIO when flash is populated.
+- **Board interface:** SPI on `P2.01` (SCK) / `P2.02` (MOSI) / `P2.04` (MISO); CS `P2.05`.
+- **JEDEC ID (L3233):** `c2 20 16`.
 - **Stock Nordic BOM:** Not Fitted.
-- **Project hardware contract:** **Fitted before use.**
+- **Project hardware contract:** **Fitted with MX25L3233 before use.**
 
 Firmware/test implications:
 
 1. Treat external flash initialization as a normal boot-path capability for the project tag.
 2. Do not expose `P2.05` as a free GPIO in the project board definition.
-3. Include a flash presence/identity test in hardware-in-loop diagnostics.
+3. Include a flash presence/identity test in hardware-in-loop diagnostics (`tag-flash` expects ~4 MiB).
 4. Prefer a non-destructive capacity/read test during ordinary boot diagnostics.
 5. If erase/write verification is needed, reserve a dedicated test sector/partition so a factory test cannot destroy application data.
-6. The board guide does not state the complete QSPI pin mapping or JEDEC-ID constants; obtain those from the Nordic board definition/schematic and Macronix datasheet rather than inferring them here.
+6. Pin map and JEDEC ID come from project overlays / Macronix datasheet (not the stock 8 MiB QSPI BOM entry).
 
 
 
@@ -444,7 +444,7 @@ Expected on the **project-populated** tag:
 - BME688 responds at `0x76`.
 - ADXL367 responds at `0x1D`.
 - BMI270 responds on its dedicated SPI bus.
-- MX25R6435F responds on QSPI.
+- MX25L3233F responds on SPI (project U8; JEDEC `c2 20 16`).
 - LED1 can be controlled on all three channels.
 - BTN1 can be sampled.
 
@@ -479,7 +479,7 @@ Expected on the **project-populated** tag:
 ### 14.3 Flash tests
 
 - Presence/JEDEC identity.
-- Capacity expectation: 64 Mbit / 8 MiB.
+- Capacity expectation: 32 Mbit / 4 MiB (MX25L3233 project part).
 - Read known erased region.
 - Dedicated destructive test partition: erase → write pattern → readback → restore/erase.
 - Do not run whole-chip erase in normal CI/HIL tests.
@@ -491,7 +491,7 @@ Expected on the **project-populated** tag:
 - BTN1 on `P0.00`.
 - LED1 channels on `P2.08`, `P2.10`, `P2.09`.
 - Free test-point GPIO loopback is largely superseded by the §10 custom harness; do not treat SD/PIR/optional harness pins as disposable loopback targets.
-- Do not use `P1.11/P1.12` (TWI) or `P2.05` (project QSPI CS) as general test GPIOs.
+- Do not use `P1.11/P1.12` (TWI) or `P2.05` (project SPI NOR CS) as general test GPIOs.
 
 
 
@@ -527,10 +527,10 @@ The hardware guide/BOM do **not** provide enough information to safely hard-code
 - Exact nRF GPIOs for BMI270 SPI/IRQ.
 - Exact nRF GPIO for `ADXL_IRQ`.
 - Exact nRF GPIO for `ANTSEL`.
-- Complete QSPI signal mapping for U8 beyond documented `P2.05` CS usage.
+- Complete SPI signal mapping for U8 beyond documented `P2.05` CS usage (project overlays use P2.01/02/04).
 - LED electrical polarity/active-high vs. active-low semantics.
 - Sensor chip-ID values, register maps, ODRs, FIFOs, interrupt semantics, noise, or current consumption.
-- MX25R6435F JEDEC ID, erase geometry, command set, or deep-power-down behavior.
+- MX25L3233F JEDEC ID, erase geometry, command set, or deep-power-down behavior (see project overlays: `c2 20 16`).
 - nRF54L15 CPU/RAM/internal-flash specifications.
 
 For those, use the **Nordic board DTS/schematic/layout files** and the relevant manufacturer datasheets. Do not substitute guesses into unit tests.
@@ -540,7 +540,7 @@ For those, use the **Nordic board DTS/schematic/layout files** and the relevant 
 - **Nordic Semiconductor:** *nRF54L15 Tag Hardware User Guide v1.0.0*, document 4557_015, dated 2026-06-16. Valid for tag HW revisions v0.7.0 and v1.0.0.
 - Nordic online guide: [https://docs.nordicsemi.com/r/bundle/ug_nrf54l15_tag/page/ug/nrf54l15_tag/intro.html](https://docs.nordicsemi.com/r/bundle/ug_nrf54l15_tag/page/ug/nrf54l15_tag/intro.html)
 - **Attached BOM:** PCA20072, v1.0.0, product `nRF54L15 Tag`, creation date 2026-04-13.
-- Project override supplied with this reference: populate `U8 / MX25R6435FZBIH3` before use.
+- Project override supplied with this reference: populate U8 with **MX25L3233FZBI-08G-TR** (stock BOM lists MX25R6435FZBIH3 as Not Fitted).
 
 ---
 
@@ -611,7 +611,7 @@ This appendix preserves the attached BOM in searchable text. `Effective status` 
 | U4                                                      | BMI270             | 6-axis, smart, low-power, inertial measurement unit                                    | LGA-14                      | Bosch                         | BMI270                    | Fitted     | 1       | Fitted                        |
 | U5                                                      | ADXL367            | Micropower, 3-Axis, ±2 g/±4 g/±8 g Digital Output MEMS Accelerometer                   | LGA-12                      | Analog Devices                | ADXL367BCCZ               | Fitted     | 1       | Fitted                        |
 | U6                                                      | SKY13348-374LF     | 50 MHz-6.0 GHz GaAs SPDT Switch                                                        | XFDFN-6                     | Skyworks                      | SKY13348-374LF            | Fitted     | 1       | Fitted                        |
-| U8                                                      | MX25R6435F         | Ultra low power, 64M-bit, serial multi I/O flash memory                                | USON-8                      | Macronix                      | MX25R6435FZBIH3           | Not Fitted | 0       | **Fitted (project override)** |
+| U8                                                      | MX25L3233F         | 32M-bit SPI NOR (project); stock BOM lists MX25R6435F Not Fitted                       | USON-8                      | Macronix                      | MX25L3233FZBI-08G-TR      | Not Fitted | 0       | **Fitted (project L3233)**    |
 | X1                                                      | 32.768kHz          | XTAL SMD 2012, 32.768kHz, 9pF, ±20ppm                                                  | XTAL_2012                   | TXC Corporation               | 9HT11-32.768KDZC-T        | Fitted     | 1       | Fitted                        |
 | X2                                                      | 32MHz              | XTAL SMD 2016, 32MHz, Cl=8pF, Tot: ±40ppm                                              | XTAL_2016                   | Kyocera                       | CX2016DB32000D0WZRC1      | Fitted     | 1       | Fitted                        |
 

@@ -1,10 +1,39 @@
 /*
- * Project U8 MX25L3233F overlay for nRF54L15 Tag (32 Mbit / 4 MiB).
- *
- * Stock Nordic Tag DTS leaves external flash unpopulated. CS is P2.05
- * (Tag HW User Guide). SCK/MOSI/MISO follow nRF54L15 DK spi00 pinout
- * (P2.01 / P2.02 / P2.04). JEDEC + DPD timings match Particle MX25L3233 boards.
+ * juxta6-0-prod: un-hog SKY13348 + SAADC VDD + MX25L3233 (32 Mbit) on spi00.
  */
+
+/ {
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+
+	aliases {
+		spi-flash0 = &mx25l32;
+		spi-mem = &mx25l32;
+	};
+};
+
+&gpio1 {
+	/delete-node/ antenna_switch_v1;
+	/delete-node/ antenna_switch_v2;
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <14>;
+		zephyr,oversampling = <8>;
+		zephyr,vref-mv = <900>;
+		zephyr,input-positive = <NRF_SAADC_VDD>;
+	};
+};
 
 &pinctrl {
 	spi00_default: spi00_default {
@@ -42,11 +71,5 @@
 		has-dpd;
 		t-enter-dpd = <10000>;
 		t-exit-dpd = <100000>;
-	};
-};
-
-/ {
-	aliases {
-		spi-flash0 = &mx25l32;
 	};
 };

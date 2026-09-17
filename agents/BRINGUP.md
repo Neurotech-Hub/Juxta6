@@ -12,7 +12,7 @@ Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
 3. In **nRF Connect**, build/flash with board `nrf54l15tag/nrf54l15/cpuapp` and **RTT Console** (`rtt-console`).
 4. Run HIL apps in order; record results in `docs/HIL_VALIDATION.md`.
 5. **Channel Sounding** needs **NCS ≥ 3.3.1**. Never apply nRF54L15 DK CS antenna overlays on Tag (those pins are TWI).
-6. **Later:** Encounter Manager, flash encounter log, 3-tag HIL, anchor policy, `tag-prod`.
+6. **Later:** `juxta6-0-prod` M2 (Hublink + NOR CSV), then MCUboot/CS milestones; Encounter Manager.
 
 ## HIL order
 
@@ -24,9 +24,10 @@ Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
 | 2 | `tag-btn-magnet` | Hold &lt;3 s reject; 3–10 s green slow; ≥10 s blue fast |
 | 3 | `tag-sysoff` | System OFF; BTN1 wakes then re-shelves |
 | 4 | `tag-sensors-off` | BMI + BME probe then suspend |
-| 5 | `tag-adxl367` | Shake → `motion_count`; BMI/BME off |
-| 6 | `tag-flash` | Last-sector PASS (U8 fitted) |
+| 5 | `tag-adxl367` | Shake → `motion_count` (+ `temp_c`); BMI/BME off |
+| 6 | `tag-flash` | Last-sector PASS (MX25L3233 4 MiB U8) |
 | 7 | `tag-ble-adv` | Adv / connect LED cues |
+| 12 | `tag-vdd` | RTT `vdd_mv` / `batt_pct~` (SAADC VDD); optional adv droop |
 
 ### Wave B — mobile↔mobile ranging
 
@@ -36,6 +37,12 @@ Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
 | 9 | `tag-discover` | Two identical images; mutual `peer_seen` / `peer_lost` |
 | 10 | `tag-cs` | LED green=auto / blue=initiator / red=reflector; RTT median distance (window=9); BTN1 forces role |
 | 11 | `tag-rssi-adv` | LED red=advertiser / blue=scanner; RTT `rssi_pkt` with seq + rx_ant (ANT1/ANT2 mux); no CS |
+
+### Wave C — product (M2)
+
+| # | App | Expect |
+| --- | --- | --- |
+| — | `juxta6-0-prod` | Shelf → Hublink timestamp → prod; NOR JXS/JXV/JXB + RTT mirrors; companion LIST/pull; clearMemory erases; ≥10 s DFU cue only. No MCUboot/CS. See app README. |
 
 ## Hardware notes
 

@@ -1,5 +1,5 @@
 /*
- * Destructive test on the LAST erase page of MX25R6435F only.
+ * Destructive test on the LAST erase page of MX25L3233F only (4 MiB).
  * Never erases offset 0; never chip-erases.
  *
  * Requires boards/nrf54l15tag_nrf54l15_cpuapp.overlay (project U8 fitted).
@@ -17,12 +17,12 @@
 LOG_MODULE_REGISTER(tag_flash, LOG_LEVEL_INF);
 
 #if !DT_NODE_EXISTS(DT_ALIAS(spi_flash0))
-#error "Enable MX25R6435F via boards/nrf54l15tag_nrf54l15_cpuapp.overlay (alias spi-flash0)"
+#error "Enable MX25L3233F via boards/nrf54l15tag_nrf54l15_cpuapp.overlay (alias spi-flash0)"
 #endif
 
 #define FLASH_NODE DT_ALIAS(spi_flash0)
 #define TEST_PATTERN_CAP 256U
-#define EXPECTED_SIZE_BYTES (8ULL * 1024ULL * 1024ULL)
+#define EXPECTED_SIZE_BYTES (4ULL * 1024ULL * 1024ULL)
 
 int main(void)
 {

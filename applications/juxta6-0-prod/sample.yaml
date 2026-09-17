@@ -1,0 +1,17 @@
+sample:
+  name: Juxta6-0 Prod M1
+  description: >
+    Shelf, Hublink datetime sync, dual-antenna max-RSSI production, live vitals.
+    RTT JXS/JXB/JXV only (no NOR). No MCUboot/CS.
+
+common:
+  tags:
+    - tag
+    - juxta
+    - production
+
+tests:
+  applications.juxta6-0-prod:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

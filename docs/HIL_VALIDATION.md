@@ -24,13 +24,14 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 | HIL-02  | `tag-btn-magnet`  | BTN1 as MAG_INT (3 s / 10 s)             | <3 s reject; 3–10 s green slow; ≥10 s blue fast; RTT `hold_ms` / outcome                                                                                                                                                  | 2026-09-14 | 3.3.4 |                   | pass                    |                    |          |
 | HIL-03  | `tag-sysoff`      | System OFF + BTN1 wake                   | Enters OFF; BTN1 wakes; green 1 s; re-shelves; RTT reset cause                                                                                                                                                            | 2026-09-14 | 3.3.4 |                   | pass                    | Disconnect debugger; remove from DEBUG OUT to test OFF/wake properly |          |
 | HIL-04  | `tag-sensors-off` | BMI270 + BME688 probe then suspend       | RTT `[PROBE]` / `[SUSPEND]` ok; idle                                                                                                                                                                                      | 2026-09-14 | 3.3.4 |                   | pass                    | BME688 suspend ok; BMI270 PM -ENOSYS (no driver PM) |          |
-| HIL-05  | `tag-adxl367`     | ADXL367 motion count; unused sensors off | RTT probe; `motion_count` rises when shaken; BMI/BME suspended                                                                                                                                                            | 2026-09-14 | 3.3.4 |                   | pass                    | BMI270 PM -ENOSYS (same as HIL-04) |          |
-| HIL-06  | `tag-flash`       | MX25R6435F (U8) last-sector R/W          | `[PROBE]` ~8 MiB; `[ERASE]`/`[WRITE]`/`[VERIFY]` PASS (last sector only)                                                                                                                                                  |      |     |                   |                         |                    |          |
+| HIL-05  | `tag-adxl367`     | ADXL367 motion count; unused sensors off | RTT probe; `motion_count` rises when shaken; `temp_c` from DIE_TEMP; BMI/BME suspended                                                                                                                                                            | 2026-09-14 | 3.3.4 |                   | pass                    | BMI270 PM -ENOSYS (same as HIL-04); re-check `temp_c` after juxta_motion enhance |          |
+| HIL-06  | `tag-flash`       | MX25L3233F (U8) last-sector R/W          | `[PROBE]` ~4 MiB; `[ERASE]`/`[WRITE]`/`[VERIFY]` PASS (last sector only). Re-run if modules swapped from MX25R6435.                                                                                                                                                  | 2026-09-17 | 3.3.4 |                   | pass                    | Was R6435 8 MiB HIL; modules now L3233 4 MiB — re-confirm probe size |          |
 | HIL-07  | `tag-ble-adv`     | Connectable adv `JX_TAG`                 | Green slow blink advertising; solid green connected; RTT Connect/Disconnect                                                                                                                                               | 2026-09-14 | 3.3.4 |                   | pass                    | Adv restart deferred via workqueue |          |
 | HIL-08  | `tag-id`          | Unique identity + mobile profile         | RTT `hwinfo_device_id`, `bt_id`, `juxta_name=JX_…`, `juxta_profile=mobile`; LED1 green brief                                                                                                                              | 2026-09-14 | 3.3.4 |                   | pass                    | juxta_name=JX_6D5FB8 |          |
 | HIL-09  | `tag-discover`    | Two-tag coarse discovery                 | Both flash same image; each RTT `peer_seen id=JX_… rssi=…`; `peer_lost` after ~5 s absence; LED1 green while peer visible                                                                                                 | 2026-09-14 | 3.3.4 |                   | pass                    |                    |          |
 | HIL-10  | `tag-cs`          | Mobile↔mobile CS both roles              | Two tags; LED green=auto / blue=initiator / red=reflector; RTT median `distance_m` + `ifft`/`phase_slope`/`rtt`/`samples` (window=9); `quality`/`status`; BTN1 force override; record known separations (characterization gate) | 2026-09-14 | 3.3.4 |                   | pass                    | Ranging works (Nordic-style realtime RD + median window). Likely better than RSSI at short range; value of a CS connection vs adv RSSI alone unclear given code/complexity cost. |          |
 | HIL-11  | `tag-rssi-adv`    | Adv RSSI + dual RX antenna               | Same image; BTN1 advertiser(red) / scanner(blue); scanner RTT `rssi_pkt id=… seq=… rssi=… rx_ant=1\|2 …`; both antennas appear; no CS | 2026-09-14 | 3.3.4 |                   | pass                    | Both rx_ant=1 and 2 logged; ANT1 ~5 dB stronger than ANT2 in short-range capture (`data/tag-rssi.log`). |          |
+| HIL-12  | `tag-vdd`         | SAADC internal VDD (CR2032)              | RTT `vdd_mv=… batt_pct~…` idle and during brief adv; ~2.7–3.3 V on coin cell (nRF54 needs GAIN_1_4 + 0.9 V ref — not GAIN_1) |      |     |                   |                         |                    |          |
 
 
 
@@ -77,11 +78,12 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 
 | ID  | App / topic            | Intent                                                                   |
 | --- | ---------------------- | ------------------------------------------------------------------------ |
+| —   | `juxta6-0-prod` M2     | NOR CSV + Filename/File Transfer live (`6.0.0-nor`, MX25L3233 4 MiB). See app README. Validate companion LIST/pull + clearMemory. |
 | —   | Encounter Manager      | Qualify / arbitrate / cooldown / budget (opportunistic, not a scheduler) |
-| —   | Encounter log to flash | Persist peer ID + distance + quality across reset                        |
 | —   | 3-tag HIL              | Multi-peer encounter manager behavior                                    |
 | —   | Anchor profile         | Same CS layer; policy-only difference                                    |
-| —   | `tag-prod`             | Hublink + Juxta5-8 contracts after HIL passes                            |
+| —   | MCUboot / SMP DFU      | M3 — ≥10 s magnet is LED cue only until then                             |
+| —   | CS in prod             | M4 — optional; M2 uses advertising RSSI                                  |
 
 
 
@@ -91,7 +93,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 - **BTN1** (`sw0` / `P0.00`) stands in for Juxta5-8 MAG_INT (and CS role override in `tag-cs`).
 - **LED1** RGB only; LED2 footprint unused.
 - Motion path: **ADXL367** only. BMI270 / BME688 stay shut down outside their probe fixtures.
-- External flash **U8** is project-fitted; stock Nordic BOM leaves it empty.
+- External flash **U8**: project modules use **MX25L3233F** (32 Mbit / 4 MiB); stock Nordic BOM may list MX25R6435. CS `P2.05`.
 - Identity: `JX_` + last three bytes of BLE public identity (same rule as Juxta5-8 ble-range).
 - Channel Sounding is isolated in `lib/juxta_range/`. Apps must not call Nordic CS/RAS APIs directly.
 - No FUEL ADC on Tag (CR2032 direct).

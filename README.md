@@ -27,7 +27,7 @@ Architecture brief: [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md).
 | Magnet stand-in | **BTN1** (`sw0` / `P0.00`) |
 | Status LED | **LED1** RGB only (`led1_red` / `led1_green` / `led1_blue`) |
 | Motion count | **ADXL367** (BMI270 / BME688 stay shut down for now) |
-| External flash | **MX25R6435F** U8 (project-fitted; not stock BOM) |
+| External flash | **MX25L3233F** U8 (32 Mbit / 4 MiB; project-fitted) |
 | Identity | `JX_` + last 3 bytes of BLE public address |
 | FUEL ADC | Not present — do not port |
 | Channel Sounding | Dual antenna + SKY13348; SDK behind `lib/juxta_range` |
@@ -43,6 +43,8 @@ Architecture brief: [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md).
 │   └── JUXTA-SPEC.md
 ├── lib/
 │   ├── juxta_id/                  # JX_XXXXXX helpers
+│   ├── juxta_motion/              # ADXL367 XYZ + DIE_TEMP poll
+│   ├── juxta_vdd/                 # SAADC VDD mV helper
 │   └── juxta_range/               # CS/RAS isolation layer
 ├── docs/
 │   ├── HIL_VALIDATION.md
@@ -50,10 +52,12 @@ Architecture brief: [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md).
 ├── reference/juxta5-8/            # Frozen — do not west-build
 └── applications/
     ├── tag-blink/ … tag-ble-adv/  # HIL-01..07 hardware fixtures
+    ├── tag-vdd/                   # HIL-12 SAADC VDD
     ├── tag-id/                    # HIL-08 identity
     ├── tag-discover/              # HIL-09 two-tag discovery
     ├── tag-cs/                    # HIL-10 mobile↔mobile CS
-    └── tag-rssi-adv/              # HIL-11 adv RSSI + dual RX antenna
+    ├── tag-rssi-adv/              # HIL-11 adv RSSI + dual RX antenna
+    └── juxta6-0-prod/             # M2 product image (Hublink + NOR CSV + RTT)
 ```
 
 ## Build and flash (user)
@@ -81,9 +85,10 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | 2 | `tag-btn-magnet` | BTN1 mimics MAG_INT (3 s / 10 s) |
 | 3 | `tag-sysoff` | System OFF + BTN1 wake |
 | 4 | `tag-sensors-off` | Probe then suspend BMI + BME |
-| 5 | `tag-adxl367` | ADXL367 motion count; BMI/BME off |
-| 6 | `tag-flash` | MX25R last sector only |
+| 5 | `tag-adxl367` | ADXL367 motion + `temp_c`; BMI/BME off |
+| 6 | `tag-flash` | MX25L3233 last sector only (4 MiB) |
 | 7 | `tag-ble-adv` | Connectable adv smoke |
+| 12 | `tag-vdd` | SAADC VDD `vdd_mv` / CR2032 `%` estimate |
 
 ### Wave B — mobile↔mobile ranging (pre-prod)
 
@@ -96,19 +101,23 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 
 **Two-tag lab:** flash the same image to both tags. CS distance is logged for characterization — no accuracy gate yet. Do not copy DK CS antenna overlays onto Tag.
 
-## Later (not implemented)
+### Wave C — product (M2)
 
-| Topic | Intent |
+| App | Intent |
 | --- | --- |
-| Encounter Manager | Opportunistic qualify / arbitrate / cooldown / budget (not a scheduler) |
-| Encounter logger | Flash persistence of peer + distance + quality |
-| 3-tag HIL | Multi-peer encounter behavior |
-| Anchor profile | Same CS layer; policy-only |
-| `tag-prod` | Hublink + Juxta5-8 contracts |
+| `juxta6-0-prod` | Shelf / magnet / Hublink sync / dual-ant max-RSSI / live vitals / **MX25L3233 NOR CSV** + Filename/File Transfer; RTT mirrors. See [applications/juxta6-0-prod/README.md](applications/juxta6-0-prod/README.md). |
 
-## Non-goals (current waves)
+## Later milestones
 
-No Hublink GATT, NOR CSV logger, MCUboot/DFU, Encounter Manager, anchor-specific apps, LED2/BTN2, FUEL ADC, or DK Channel Sounding antenna overlays on Tag TWI pins.
+| Milestone | Intent |
+| --- | --- |
+| M3 | MCUboot + SMP DFU |
+| M4 | Encounter Manager + optional CS |
+| — | 3-tag HIL; anchor policy |
+
+## Non-goals (M2)
+
+No MCUboot/DFU (cue only), Channel Sounding in prod, Encounter Manager, LED2/BTN2, FUEL ADC, or DK CS antenna overlays on Tag TWI pins.
 
 ## Links
 
