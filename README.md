@@ -117,8 +117,6 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | — | Temperature: retain BME688, or sync temp from iPhone to calibrate ADXL/IMU (~10 °C skew between devices today) |
 | — | Update iOS companion for firmware 6.1.0 / schema v6 memory mapping |
 
-Also update the app README later milestones for consistency:
-
 ## Non-goals (M2)
 
 No MCUboot/DFU (cue only), Channel Sounding in prod, Encounter Manager, LED2/BTN2, FUEL ADC, or DK CS antenna overlays on Tag TWI pins.
