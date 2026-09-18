@@ -13,6 +13,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/hwinfo.h>
+#include <zephyr/drivers/watchdog.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net_buf.h>
@@ -58,6 +59,18 @@ static const struct gpio_dt_spec led_g = GPIO_DT_SPEC_GET(DT_NODELABEL(led1_gree
 static const struct gpio_dt_spec led_b = GPIO_DT_SPEC_GET(DT_NODELABEL(led1_blue), gpios);
 static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
+/*
+ * Dedicated low-priority workqueue for long NOR operations. clearMemory
+ * erases every CSV sector (~tens of seconds); on the system workqueue that
+ * would starve the 100 ms ADXL poll (and any other sysworkq user) for the
+ * whole erase. Preemptible and low priority so BT RX / sysworkq still run.
+ */
+#define NOR_WQ_STACK_SIZE 4096
+#define NOR_WQ_PRIORITY K_PRIO_PREEMPT(12)
+
+static K_THREAD_STACK_DEFINE(nor_wq_stack, NOR_WQ_STACK_SIZE);
+static struct k_work_q nor_wq;
+
 static char local_name[JUXTA_ID_LEN];
 static atomic_t app_mode = ATOMIC_INIT(JUXTA_OP_MODE_SHELF);
 static atomic_t enter_prod_req;
@@ -93,6 +106,55 @@ struct peer_slot {
 
 static struct peer_slot peers[PEER_SLOT_COUNT];
 static struct k_mutex peers_lock;
+
+/*
+ * Hardware watchdog: recovers from silent field hangs (wedged I2C/SPI, BLE
+ * stack stall, logic deadlock). 60 s window, WDT_FLAG_RESET_SOC. Fed from
+ * every long-lived loop below and from juxta_log's long-erase tick (a
+ * clearMemory erase can exceed the window). Paused while halted by a
+ * debugger. The nRF WDT runs from LFCLK, which stops in System OFF, so
+ * shelf mode is unaffected; wake re-arms it on the next boot.
+ */
+#define PROD_WDT_TIMEOUT_MS 60000U
+
+static const struct device *const wdt_dev = DEVICE_DT_GET_OR_NULL(DT_ALIAS(watchdog0));
+static int wdt_channel = -1;
+
+/* Safe to call from any thread/loop, before or after arming. */
+static void prod_wdt_feed(void)
+{
+	if (wdt_channel >= 0) {
+		(void)wdt_feed(wdt_dev, wdt_channel);
+	}
+}
+
+static void prod_wdt_start(void)
+{
+	const struct wdt_timeout_cfg cfg = {
+		.window = {.min = 0U, .max = PROD_WDT_TIMEOUT_MS},
+		.flags = WDT_FLAG_RESET_SOC,
+	};
+	int ch;
+
+	if (wdt_dev == NULL || !device_is_ready(wdt_dev)) {
+		LOG_WRN("watchdog0 unavailable — no hang recovery");
+		return;
+	}
+
+	ch = wdt_install_timeout(wdt_dev, &cfg);
+	if (ch < 0) {
+		LOG_WRN("wdt_install_timeout (%d)", ch);
+		return;
+	}
+
+	if (wdt_setup(wdt_dev, WDT_OPT_PAUSE_HALTED_BY_DBG) != 0) {
+		LOG_WRN("wdt_setup failed");
+		return;
+	}
+
+	wdt_channel = ch;
+	LOG_INF("watchdog armed (%u ms)", (unsigned int)PROD_WDT_TIMEOUT_MS);
+}
 
 /* J-Link / SWD: C_DEBUGEN is set while a debugger has the debug interface. */
 static bool debugger_attached(void)
@@ -150,6 +212,8 @@ static void led_fast_blue_step(bool on)
 static void led_long_blink_fault(bool r, bool g, bool b)
 {
 	while (1) {
+		/* Deliberate latch: keep the WDT fed so it stays visible. */
+		prod_wdt_feed();
 		leds_off();
 		if (r) {
 			(void)gpio_pin_set_dt(&led_r, 1);
@@ -176,6 +240,8 @@ static void enter_uvlo_lockout(const char *reason)
 	leds_off();
 
 	while (1) {
+		/* Sticky lockout by design: feed WDT so it doesn't reboot us. */
+		prod_wdt_feed();
 		(void)gpio_pin_set_dt(&led_r, 1);
 		k_sleep(K_MSEC(BATT_UVLO_LED_ON_MS));
 		leds_off();
@@ -184,8 +250,8 @@ static void enter_uvlo_lockout(const char *reason)
 }
 
 /*
- * Multi-sample gate (Juxta5-8 style). Returns true if all samples are valid
- * and below UVLO. Skipped under debugger (bench supply / no cell).
+ * Multi-sample UVLO gate. Returns true if all samples are valid and below
+ * UVLO. Skipped under debugger (bench supply / no cell).
  */
 static bool battery_uvlo_tripped(void)
 {
@@ -226,6 +292,47 @@ static bool battery_uvlo_tripped(void)
 #define INIT_RETRY_ATTEMPTS 5
 #define INIT_RETRY_DELAY_MS 100
 
+/*
+ * Bounded reboot-retry for required-init failures. A failed device probe is
+ * sticky for the life of the boot (see deferred_device_init_once), so the
+ * only real retry is a reboot — which also rides out transient conditions
+ * like handling motion or a marginal contact. __noinit survives soft reboot
+ * (magic check catches uninitialized RAM after POR / System OFF wake); the
+ * counter bounds retries so a truly dead part still reaches the fault LED.
+ */
+#define INIT_REBOOT_MAGIC 0x4A585236U /* "JXR6" */
+#define INIT_REBOOT_MAX 3U
+#define INIT_REBOOT_DELAY_MS 1000
+
+static __noinit uint32_t init_reboot_magic;
+static __noinit uint32_t init_reboot_count;
+
+static void init_reboot_state_reset(void)
+{
+	init_reboot_magic = INIT_REBOOT_MAGIC;
+	init_reboot_count = 0U;
+}
+
+/* Required init failed: reboot-retry up to INIT_REBOOT_MAX, then fault LED. */
+static void init_fault(const char *what, int err, bool r, bool g, bool b)
+{
+	if (init_reboot_magic != INIT_REBOOT_MAGIC) {
+		init_reboot_state_reset();
+	}
+
+	if (init_reboot_count < INIT_REBOOT_MAX) {
+		init_reboot_count++;
+		LOG_ERR("%s (%d) — reboot retry %u/%u", what, err,
+			(unsigned int)init_reboot_count, (unsigned int)INIT_REBOOT_MAX);
+		k_sleep(K_MSEC(INIT_REBOOT_DELAY_MS)); /* flush RTT, settle */
+		sys_reboot(SYS_REBOOT_COLD);
+	}
+
+	LOG_ERR("%s (%d) — hardware fault after %u reboot retries", what, err,
+		(unsigned int)INIT_REBOOT_MAX);
+	led_long_blink_fault(r, g, b);
+}
+
 static int init_with_retry(const char *name, int (*fn)(void))
 {
 	int err = -ENODEV;
@@ -245,7 +352,15 @@ static int init_with_retry(const char *name, int (*fn)(void))
 	return err;
 }
 
-/* device_init() for zephyr,deferred-init nodes (skipped at POST_KERNEL). */
+/*
+ * device_init() for zephyr,deferred-init nodes (skipped at POST_KERNEL).
+ *
+ * Zephyr marks a device "initialized" even when its init function FAILED
+ * (the error is only recorded in dev->state->init_res), and device_init()
+ * then returns -EALREADY forever. So -EALREADY is success only if the
+ * device actually came up; otherwise report the sticky failure — retrying
+ * device_init() can never fix it, only a reboot re-probes the chip.
+ */
 static int deferred_device_init_once(const struct device *dev)
 {
 	int err;
@@ -256,7 +371,7 @@ static int deferred_device_init_once(const struct device *dev)
 
 	err = device_init(dev);
 	if (err == -EALREADY) {
-		return 0;
+		return device_is_ready(dev) ? 0 : -ENODEV;
 	}
 	return err;
 }
@@ -320,6 +435,8 @@ static void enter_shelf(const char *reason)
 	leds_off();
 	(void)bt_le_adv_stop();
 	(void)bt_le_scan_stop();
+	/* Stop the 100 ms ADXL poll so poweroff can't land mid-I2C-transaction. */
+	juxta_motion_stop();
 	k_sleep(K_MSEC(100)); /* flush RTT */
 
 	/* Same alive cue for POR→shelf and prod/gateway→shelf (only chirp site). */
@@ -327,7 +444,7 @@ static void enter_shelf(const char *reason)
 
 	/*
 	 * With a debugger attached, sys_poweroff() breaks SWD/RTT. Soft-reboot
-	 * instead so main() re-enters the [DBG] simulated shelf loop (Juxta5-8).
+	 * instead so main() re-enters the [DBG] simulated shelf loop.
 	 */
 	if (debugger_attached()) {
 		LOG_INF("[DBG] Shelf → soft reboot (keep debugger/RTT)");
@@ -392,7 +509,7 @@ void juxta_ble_reset_requested(void)
 
 void juxta_ble_clear_memory_requested(void)
 {
-	(void)k_work_submit(&clear_memory_work);
+	(void)k_work_submit_to_queue(&nor_wq, &clear_memory_work);
 }
 
 static void connected(struct bt_conn *conn, uint8_t err)
@@ -511,10 +628,10 @@ static void peers_flush_jxb(void)
 	(void)k_mutex_lock(&peers_lock, K_FOREVER);
 	for (int i = 0; i < (int)PEER_SLOT_COUNT; i++) {
 		if (peers[i].active) {
-			juxta_rtt_jxb(local_name, peers[i].name, peers[i].best_rssi);
+			juxta_rtt_jxb(peers[i].name, peers[i].best_rssi);
 			if (log_ctx.initialized && juxta_time_is_set()) {
 				(void)juxta_log_append_ble_observation(&log_ctx, juxta_time_now(),
-								       local_name, peers[i].name,
+								       peers[i].name,
 								       peers[i].best_rssi);
 			}
 		}
@@ -547,6 +664,7 @@ static int magnet_wait_hold(void)
 
 	/* Wait for press */
 	while (gpio_pin_get_dt(&button) <= 0) {
+		prod_wdt_feed();
 		k_sleep(K_MSEC(20));
 	}
 
@@ -557,6 +675,7 @@ static int magnet_wait_hold(void)
 	while (gpio_pin_get_dt(&button) > 0) {
 		int64_t held = k_uptime_get() - press_ms;
 
+		prod_wdt_feed();
 		if (!saw_3s && held >= (int64_t)MAGNET_DEBOUNCE_MS) {
 			saw_3s = true;
 			leds_off(); /* commit cue */
@@ -588,7 +707,7 @@ static void run_dfu_cue(void)
 
 static int start_sync_adv(void)
 {
-	/* Match juxta5-8-prod: Hublink UUID in ADV (iOS filters on it); name in scan rsp. */
+	/* Hublink UUID in ADV (iOS filters on it); name in scan rsp. */
 	sd_sync[0].data_len = (uint8_t)strlen(local_name);
 	(void)bt_le_adv_stop();
 	return bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad_sync, ARRAY_SIZE(ad_sync), sd_sync,
@@ -617,6 +736,7 @@ static void run_sync_phase(void)
 	LOG_INF("Sync phase — connect companion, write timestamp, disconnect");
 
 	while ((int)atomic_get(&app_mode) == JUXTA_OP_MODE_SYNC) {
+		prod_wdt_feed();
 		if (atomic_cas(&enter_prod_req, 1, 0)) {
 			break;
 		}
@@ -661,6 +781,26 @@ static void production_vitals(void)
 		m.motion_count = 0U;
 	}
 	juxta_rtt_jxv(m.motion_count, batt, m.temp_c, m.temp_valid);
+
+	/* Refresh the Node-read memory level here (main thread) — the NOR scan
+	 * must never run inline in the GATT read handler on the BT RX thread. */
+	if (log_ctx.initialized) {
+		char full_prefix[4];
+
+		juxta_ble_set_memory_level(juxta_log_memory_level_percent(&log_ctx));
+
+		/* Surface newly-full regions: JXS event + RTT, never silent. */
+		while (juxta_log_take_region_full_event(full_prefix, sizeof(full_prefix)) == 1) {
+			char event[24];
+
+			(void)snprintf(event, sizeof(event), "region_full_%s", full_prefix);
+			juxta_rtt_jxs(event);
+			if (juxta_time_is_set()) {
+				(void)juxta_log_append_event(&log_ctx, juxta_settings_get(),
+							     local_name, event, juxta_time_now());
+			}
+		}
+	}
 
 	if (battery_uvlo_tripped()) {
 		if (log_ctx.initialized && juxta_time_is_set()) {
@@ -716,7 +856,7 @@ static void run_production(void)
 
 	s = juxta_settings_get();
 	next_vitals = k_uptime_get() + (int64_t)s->vitals_interval_s * 1000;
-	/* Fire first due bursts promptly (Juxta5-8: last_* starts at 0). */
+	/* Fire first due bursts promptly (last_* starts at 0). */
 	last_scan_s = 0U;
 	last_adv_s = 0U;
 
@@ -725,6 +865,7 @@ static void run_production(void)
 		bool scan_due;
 		bool adv_due;
 
+		prod_wdt_feed();
 		if (atomic_cas(&reset_to_shelf_req, 1, 0)) {
 			enter_shelf("gateway_reset");
 		}
@@ -739,6 +880,7 @@ static void run_production(void)
 			(void)gpio_pin_set_dt(&led_b, 1);
 
 			while (gpio_pin_get_dt(&button) > 0) {
+				prod_wdt_feed();
 				k_sleep(K_MSEC(20));
 				held += 20;
 				if (held >= (int)MAGNET_DEBOUNCE_MS) {
@@ -753,6 +895,7 @@ static void run_production(void)
 				/* Let the user release before System OFF wake-sense arms. */
 				k_sleep(K_SECONDS(1));
 				while (gpio_pin_get_dt(&button) > 0) {
+					prod_wdt_feed();
 					k_sleep(K_MSEC(20));
 				}
 				enter_shelf("magnet");
@@ -762,9 +905,9 @@ static void run_production(void)
 
 		s = juxta_settings_get();
 		/*
-		 * Juxta5-8 semantics: scan_interval_s / adv_interval_s are cadence
-		 * (seconds between bursts). Burst length is fixed ~1 s — never both
-		 * at once; scan wins when both are due.
+		 * scan_interval_s / adv_interval_s are cadence (seconds between
+		 * bursts). Burst length is fixed ~1 s — never both at once; scan
+		 * wins when both are due.
 		 */
 		scan_due = (s->scan_interval_s > 0U) &&
 			   ((uint64_t)now_s >= (uint64_t)last_scan_s + (uint64_t)s->scan_interval_s);
@@ -808,6 +951,9 @@ int main(void)
 
 	k_mutex_init(&peers_lock);
 	k_work_init(&clear_memory_work, clear_memory_work_handler);
+	k_work_queue_init(&nor_wq);
+	k_work_queue_start(&nor_wq, nor_wq_stack, K_THREAD_STACK_SIZEOF(nor_wq_stack),
+			   NOR_WQ_PRIORITY, NULL);
 
 	/*
 	 * DO NOT REMOVE — physical CR2032 reseat contact settle.
@@ -853,8 +999,7 @@ int main(void)
 	 */
 	err = init_with_retry("adxl367", deferred_adxl_init);
 	if (err) {
-		LOG_ERR("adxl367 device_init (%d) — hardware fault", err);
-		led_long_blink_fault(false, true, false); /* green */
+		init_fault("adxl367 device_init", err, false, true, false); /* green */
 	}
 #if DT_NODE_EXISTS(DT_NODELABEL(bme688))
 	deferred_optional_sensor_init(DEVICE_DT_GET(DT_NODELABEL(bme688)), "bme688");
@@ -864,8 +1009,7 @@ int main(void)
 #endif
 	err = init_with_retry("spi_nor", deferred_nor_init);
 	if (err) {
-		LOG_ERR("spi_nor device_init (%d) — NOR required for M2", err);
-		led_long_blink_fault(true, false, false); /* red */
+		init_fault("spi_nor device_init", err, true, false, false); /* red */
 	}
 
 	/*
@@ -874,14 +1018,12 @@ int main(void)
 	 */
 	err = init_with_retry("motion_init", motion_init_once);
 	if (err) {
-		LOG_ERR("motion_init (%d) — hardware fault", err);
-		led_long_blink_fault(false, true, false); /* green */
+		init_fault("motion_init", err, false, true, false); /* green */
 	}
 
 	err = init_with_retry("antenna_init", antenna_init_once);
 	if (err) {
-		LOG_ERR("antenna_init (%d)", err);
-		led_long_blink_fault(false, false, true); /* blue */
+		init_fault("antenna_init", err, false, false, true); /* blue */
 	}
 
 	err = bt_enable(NULL);
@@ -910,16 +1052,24 @@ int main(void)
 
 	err = init_with_retry("juxta_log_init", log_init_once);
 	if (err) {
-		LOG_ERR("juxta_log_init (%d) — NOR required for M2", err);
-		led_long_blink_fault(true, false, false); /* red */
+		init_fault("juxta_log_init", err, true, false, false); /* red */
 	}
 	(void)juxta_checkpoint_init();
 
 	(void)juxta_ble_service_init(&log_ctx);
 	juxta_ble_set_battery_mv_source(battery_mv_source);
+	/* Seed the Node-read memory level before sync (refreshed each vitals). */
+	if (log_ctx.initialized) {
+		juxta_ble_set_memory_level(juxta_log_memory_level_percent(&log_ctx));
+	}
 	bt_le_scan_cb_register(&scan_cb);
 
 	hardware_ready = true;
+	init_reboot_state_reset(); /* full bring-up succeeded — clear retry budget */
+
+	prod_wdt_start();
+	/* Keep the WDT fed through multi-second clearMemory erases. */
+	juxta_log_set_long_op_tick(prod_wdt_feed);
 
 	LOG_INF("%s %s local=%s resetreas=0x%x debugger=%d", JUXTA_PRODUCT_NAME,
 		JUXTA_FIRMWARE_VERSION, local_name, cause, (int)debugger_attached());
@@ -928,9 +1078,9 @@ int main(void)
 
 	if (debugger_attached()) {
 		/*
-		 * Debug simulation (same idea as juxta5-8-prod): stay awake, LED off
-		 * = shelf, wait for BTN1 hold. False positives loop; DFU soft-reboots
-		 * back here via enter_shelf().
+		 * Debug simulation: stay awake, LED off = shelf, wait for BTN1
+		 * hold. False positives loop; DFU soft-reboots back here via
+		 * enter_shelf().
 		 */
 		LOG_INF("[DBG] Simulated shelf — hold BTN1 3–10 s for sync, ≥10 s DFU cue");
 		leds_off();

@@ -259,8 +259,8 @@ int juxta_checkpoint_write(const struct juxta_checkpoint_record *rec)
 	}
 
 	/* On-entry erase: the sector the head is entering holds only the
-	 * oldest ~2 minutes of records.  ~45 ms once every 128 writes on the
-	 * system workqueue — well under the 2 s WDT feed cadence. */
+	 * oldest ~2 minutes of records.  ~45 ms once every 128 writes —
+	 * negligible next to the 60 s watchdog window. */
 	if ((s_head % SLOTS_PER_SECTOR) == 0U)
 	{
 		rc = erase_sector_at(slot_offset(s_head));

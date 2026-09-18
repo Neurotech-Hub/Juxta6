@@ -13,12 +13,11 @@ void juxta_rtt_jxs(const char *event)
 	LOG_INF("JXS unix=%u event=%s", t, event != NULL ? event : "?");
 }
 
-void juxta_rtt_jxb(const char *observer, const char *peer, int8_t rssi)
+void juxta_rtt_jxb(const char *peer, int8_t rssi)
 {
 	uint32_t t = juxta_time_now();
 
-	LOG_INF("JXB unix=%u observer=%s peer=%s rssi=%d", t, observer != NULL ? observer : "?",
-		peer != NULL ? peer : "?", (int)rssi);
+	LOG_INF("JXB unix=%u peer=%s rssi=%d", t, peer != NULL ? peer : "?", (int)rssi);
 }
 
 void juxta_rtt_jxv(uint32_t motion, int32_t batt_mv, float temp_c, bool temp_valid)

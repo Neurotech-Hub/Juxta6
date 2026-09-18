@@ -1,12 +1,11 @@
 /*
- * Juxta5-8 production checkpoint ring ("draft vitals")
+ * Production checkpoint ring ("draft vitals")
  *
  * A 64 KB ring buffer at the tail of the external NOR (carved from JXB)
  * that persists a small clock + vitals snapshot once per second while
- * production runs.  Unlike the retained-RAM RTC snapshot in juxta_time.c
- * (which only survives soft resets), this ring survives a true power-on
- * reset — it is what lets a mid-session POR resume production instead of
- * silently shelving (fw 5.8.4 "POR production resume").
+ * production runs.  Unlike a retained-RAM snapshot (which only survives
+ * soft resets), this ring survives a true power-on reset — the basis for
+ * resuming production after a mid-session POR instead of silently shelving.
  *
  * Geometry: 16 × 4 KB sectors, 32 B records → 2048 slots (~34 min of
  * history at 1 Hz).  Each sector is erased as the write head enters it,
@@ -27,9 +26,9 @@
 struct juxta_checkpoint_record
 {
 	uint32_t unix_time;	   /* clock at capture (never 0 for stored records) */
-	uint32_t motion_count; /* LIS2DH12 events since the last JXV vitals row */
+	uint32_t motion_count; /* ADXL367 events since the last JXV vitals row */
 	int32_t batt_mv;	   /* last battery sample */
-	int8_t temp_c;		   /* last LIS2DH12 temperature (0 until first vitals) */
+	int8_t temp_c;		   /* last ADXL367 die temperature (0 until first vitals) */
 };
 
 /* Scan the ring for the newest valid record and position the write head

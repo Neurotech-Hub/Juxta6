@@ -24,8 +24,8 @@ LOG_MODULE_REGISTER(juxta_log, LOG_LEVEL_INF);
 #define FLASH_NODE DT_ALIAS(spi_mem)
 
 /* The last 64 KB of the 4 MB NOR (0x3F0000–0x3FFFFF) is the production
- * checkpoint ring (juxta_checkpoint.c) — carved from the tail of JXB in
- * fw 5.8.4.  Keep JXB_SIZE in sync with RING_START/RING_SIZE there. */
+ * checkpoint ring (juxta_checkpoint.c), carved from the tail of JXB.
+ * Keep JXB_SIZE in sync with RING_START/RING_SIZE there. */
 #define JXS_START 0x000000U
 #define JXS_SIZE 0x010000U
 #define JXV_START 0x010000U
@@ -48,9 +48,16 @@ static const struct log_region regions[] = {
 	{JUXTA_LOG_JXS, "JXS",
 	 "unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name\n",
 	 JXS_START, JXS_SIZE},
-	{JUXTA_LOG_JXV, "JXV", "unix,motion,batt_v,temp_c\n", JXV_START, JXV_SIZE},
-	{JUXTA_LOG_JXB, "JXB", "unix,observer_id,peer_id,rssi\n", JXB_START, JXB_SIZE},
+	/* v6: JXV/JXB rows use day-relative seconds ("sec" = unix % 86400, UTC;
+	 * the calendar date is in the filename).  JXB also drops the observer
+	 * column (constant per device, in the filename) and the constant JX_
+	 * prefix on peer IDs.  JXS keeps absolute unix. */
+	{JUXTA_LOG_JXV, "JXV", "sec,motion,batt_v,temp_c\n", JXV_START, JXV_SIZE},
+	{JUXTA_LOG_JXB, "JXB", "sec,peer_id,rssi\n", JXB_START, JXB_SIZE},
 };
+
+/* v6 day-relative timestamp for JXV/JXB rows. */
+#define DAY_RELATIVE_S(unix_time) ((unix_time) % 86400U)
 
 /* YYYYMMDD for which all three log types have been aligned (see touch_all_for_calendar_day). */
 static char s_log_calendar_ymd[9];
@@ -61,6 +68,37 @@ static void (*s_long_op_tick)(void);
 void juxta_log_set_long_op_tick(void (*tick)(void))
 {
 	s_long_op_tick = tick;
+}
+
+/* One pending "region just latched full" bit per regions[] index.  Set at
+ * every latch site and drained by juxta_log_take_region_full_event() from
+ * the main loop, which turns each into a JXS event + RTT line.  Polling
+ * from main avoids appending JXS rows re-entrantly from inside the append
+ * path that discovered the latch. */
+static uint8_t s_region_full_pending;
+
+int juxta_log_take_region_full_event(char *prefix, size_t prefix_len)
+{
+	int taken = 0;
+
+	if (prefix == NULL || prefix_len < 4U)
+	{
+		return -EINVAL;
+	}
+
+	LOG_LOCK();
+	for (size_t i = 0; i < ARRAY_SIZE(regions); i++)
+	{
+		if ((s_region_full_pending & BIT(i)) != 0U)
+		{
+			s_region_full_pending &= (uint8_t)~BIT(i);
+			(void)snprintf(prefix, prefix_len, "%s", regions[i].prefix);
+			taken = 1;
+			break;
+		}
+	}
+	LOG_UNLOCK();
+	return taken;
 }
 
 /* Single recursive-style mutex guarding every public juxta_log_* entry
@@ -278,6 +316,7 @@ static int guarded_flash_append(struct juxta_log_context *ctx,
 		{
 			LOG_WRN("Region %s full: would write %u bytes at 0x%06x (end 0x%06x); latching",
 				region->prefix, (unsigned)len, off, region_end);
+			s_region_full_pending |= (uint8_t)BIT(region_idx);
 		}
 		ctx->region_full[region_idx] = true;
 		return -ENOSPC;
@@ -721,6 +760,7 @@ static int ensure_file(struct juxta_log_context *ctx, enum juxta_log_type type,
 		 * keep working on other regions; row writes targeted at this
 		 * region will be dropped by append_row's latch check. */
 		ctx->region_full[region_idx] = true;
+		s_region_full_pending |= (uint8_t)BIT(region_idx);
 		LOG_WRN("Region %s exhausted (off=0x%06x end=0x%06x); latching",
 			region->prefix, off, region->start + region->size);
 		return 0;
@@ -743,6 +783,7 @@ static int ensure_file(struct juxta_log_context *ctx, enum juxta_log_type type,
 	if ((uint64_t)off + (uint64_t)needed_bytes > (uint64_t)(region->start + region->size))
 	{
 		ctx->region_full[region_idx] = true;
+		s_region_full_pending |= (uint8_t)BIT(region_idx);
 		LOG_WRN("Region %s would overflow on rotation (need %u at 0x%06x, end 0x%06x); latching",
 			region->prefix, (unsigned)needed_bytes, off, region->start + region->size);
 		return 0;
@@ -879,6 +920,14 @@ static int append_row(struct juxta_log_context *ctx, enum juxta_log_type type, c
 	}
 
 	entry = &ctx->files[*slot];
+	/* A rotation that failed mid-way (old file closed with #EOF, new header
+	 * write errored) can leave the slot pointing at an inactive file.
+	 * Never append past a committed #EOF; the next ensure_file call retries
+	 * the rotation (path mismatch) and self-heals. */
+	if (!entry->active)
+	{
+		return -ENOENT;
+	}
 	row_len = strlen(row);
 	rc = guarded_flash_append(ctx, region, region_idx,
 				  entry->offset + entry->length, row, row_len);
@@ -894,7 +943,7 @@ static int append_row(struct juxta_log_context *ctx, enum juxta_log_type type, c
 
 	entry->length += (uint32_t)row_len;
 	/* Do NOT save the NVS log cache here.  The NVS sectors are 4 KB each
-	 * and the cache struct is ~1.5 KB at JUXTA_MAX_FILES=48, so a sector
+	 * and the cache struct is ~2.3 KB at JUXTA_MAX_FILES=72, so a sector
 	 * fills after ~2 writes.  At one JXB row every 20 s that means an
 	 * erase cycle every ~40 s — the nRF52840 internal flash (10 k cycles)
 	 * would fail in days.  Instead the cache is saved only in
@@ -1081,10 +1130,10 @@ static int erase_region(struct juxta_log_context *ctx, const struct log_region *
 
 		/* Per-sector watchdog feed + yield.  Each 4 KB sector erase is
 		 * ~45 ms on this SPI NOR and the JXB region alone is ~3 MB
-		 * (~750 sectors → ~34 s of pure erase time).  Because the
-		 * periodic WDT feed runs on the same system workqueue as the
-		 * clearMemory handler, it cannot fire while we are looping
-		 * here; we must feed inline.  k_yield() also lets any other
+		 * (~750 sectors → ~34 s of pure erase time).  The erase holds
+		 * the log mutex, so any main-loop iteration that touches the
+		 * logger can block for the duration — feed inline so the WDT
+		 * cannot trip mid-erase.  k_yield() also lets any other
 		 * higher-priority thread (BT RX servicing a disconnect, ISR
 		 * deferred work) make progress between sector erases. */
 		if (s_long_op_tick != NULL)
@@ -1119,23 +1168,30 @@ int juxta_log_format(struct juxta_log_context *ctx)
 		if (rc != 0)
 		{
 			LOG_ERR("Failed to erase region %s: %d", regions[i].prefix, rc);
-			LOG_UNLOCK();
-			return rc;
+			break;
 		}
 	}
 
+	/* Reset in-memory + NVS state even after a failed/partial erase: stale
+	 * metadata pointing into wiped NOR is worse than an empty catalog.
+	 * Boot recovery rebuilds from flash, and ensure_file re-creates files
+	 * from the first erased offset of each region. */
 	(void)juxta_settings_clear_log_cache();
 	ctx->file_count = 0;
 	ctx->active_jxs = UINT32_MAX;
 	ctx->active_jxv = UINT32_MAX;
 	ctx->active_jxb = UINT32_MAX;
 	memset(ctx->region_full, 0, sizeof(ctx->region_full));
+	s_region_full_pending = 0U;
 	s_log_calendar_ymd[0] = '\0';
 	s_file_count_cap_warned = false;
 
-	LOG_INF("NOR CSV regions erased — file creation deferred to next data write");
+	if (rc == 0)
+	{
+		LOG_INF("NOR CSV regions erased — file creation deferred to next data write");
+	}
 	LOG_UNLOCK();
-	return 0;
+	return rc;
 }
 
 int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_settings *settings,
@@ -1209,8 +1265,8 @@ int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, u
 		goto out;
 	}
 
-	len = snprintf(row, sizeof(row), "%u,%u,%d.%02d,%d\n", unix_time, motion, volts,
-				   centivolts, temp_c);
+	len = snprintf(row, sizeof(row), "%u,%u,%d.%02d,%d\n", DAY_RELATIVE_S(unix_time),
+				   motion, volts, centivolts, temp_c);
 	if (len < 0 || len >= (int)sizeof(row))
 	{
 		rc = -ENOSPC;
@@ -1227,14 +1283,20 @@ out:
 }
 
 int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t unix_time,
-									 const char *observer_id, const char *peer_id, int8_t rssi)
+									 const char *peer_id, int8_t rssi)
 {
 	static char row[96];
 	int rc;
 
-	if (!ctx || !observer_id || !peer_id)
+	if (!ctx || !peer_id)
 	{
 		return -EINVAL;
+	}
+
+	/* v6: drop the constant JX_ prefix from stored peer IDs. */
+	if (strncmp(peer_id, "JX_", 3) == 0)
+	{
+		peer_id += 3;
 	}
 
 	LOG_LOCK();
@@ -1251,8 +1313,8 @@ int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t uni
 		goto out;
 	}
 
-	int len = snprintf(row, sizeof(row), "%u,%s,%s,%d\n", unix_time, observer_id, peer_id,
-					   rssi);
+	int len = snprintf(row, sizeof(row), "%u,%s,%d\n", DAY_RELATIVE_S(unix_time),
+					   peer_id, rssi);
 	if (len < 0 || len >= (int)sizeof(row))
 	{
 		rc = -ENOSPC;

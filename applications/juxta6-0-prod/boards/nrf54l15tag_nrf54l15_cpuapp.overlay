@@ -13,7 +13,14 @@
 	aliases {
 		spi-flash0 = &mx25l32;
 		spi-mem = &mx25l32;
+		watchdog0 = &wdt31;
 	};
+};
+
+/* Hardware watchdog for field hang recovery (runs from LFCLK, which stops
+ * in System OFF, so shelf mode is unaffected). */
+&wdt31 {
+	status = "okay";
 };
 
 &gpio1 {

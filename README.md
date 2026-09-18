@@ -111,9 +111,13 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 
 | Milestone | Intent |
 | --- | --- |
-| M3 | MCUboot + SMP DFU |
+| M3 | MCUboot + SMP DFU (wire DFU — port from Juxta 5.8) |
 | M4 | Encounter Manager + optional CS |
 | — | 3-tag HIL; anchor policy |
+| — | Temperature: retain BME688, or sync temp from iPhone to calibrate ADXL/IMU (~10 °C skew between devices today) |
+| — | Update iOS companion for firmware 6.1.0 / schema v6 memory mapping |
+
+Also update the app README later milestones for consistency:
 
 ## Non-goals (M2)
 

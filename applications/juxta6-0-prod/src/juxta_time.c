@@ -4,10 +4,16 @@
 #include <string.h>
 
 #include <zephyr/kernel.h>
-#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util.h>
 
-static atomic_t base_unix;
+/*
+ * base_unix and base_uptime_ms are a pair: pairing an old unix base with a
+ * new uptime base (or vice versa) yields a wrong wall clock until the next
+ * sync. juxta_time_set() runs on the BLE path while juxta_time_now() runs
+ * on main/logging paths, so both fields are read/written under a spinlock.
+ */
+static struct k_spinlock time_lock;
+static uint32_t base_unix;
 static int64_t base_uptime_ms;
 
 static bool is_leap(int year)
@@ -17,30 +23,47 @@ static bool is_leap(int year)
 
 void juxta_time_init(void)
 {
+	k_spinlock_key_t key = k_spin_lock(&time_lock);
+
 	base_uptime_ms = k_uptime_get();
-	atomic_set(&base_unix, 0);
+	base_unix = 0U;
+	k_spin_unlock(&time_lock, key);
 }
 
 void juxta_time_set(uint32_t unix_time)
 {
+	k_spinlock_key_t key = k_spin_lock(&time_lock);
+
 	base_uptime_ms = k_uptime_get();
-	atomic_set(&base_unix, (atomic_val_t)unix_time);
+	base_unix = unix_time;
+	k_spin_unlock(&time_lock, key);
 }
 
 uint32_t juxta_time_now(void)
 {
-	uint32_t unix_time = (uint32_t)atomic_get(&base_unix);
+	uint32_t unix_time;
+	int64_t uptime_base;
+	k_spinlock_key_t key = k_spin_lock(&time_lock);
+
+	unix_time = base_unix;
+	uptime_base = base_uptime_ms;
+	k_spin_unlock(&time_lock, key);
 
 	if (unix_time == 0U) {
 		return 0U;
 	}
 
-	return unix_time + (uint32_t)((k_uptime_get() - base_uptime_ms) / 1000);
+	return unix_time + (uint32_t)((k_uptime_get() - uptime_base) / 1000);
 }
 
 bool juxta_time_is_set(void)
 {
-	return atomic_get(&base_unix) != 0;
+	bool set;
+	k_spinlock_key_t key = k_spin_lock(&time_lock);
+
+	set = base_unix != 0U;
+	k_spin_unlock(&time_lock, key);
+	return set;
 }
 
 static void juxta_time_ymd(uint32_t unix_time, int *year, int *month, int *day)

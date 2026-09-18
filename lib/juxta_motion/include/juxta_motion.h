@@ -37,6 +37,13 @@ void juxta_motion_take(struct juxta_motion_sample *out);
 
 bool juxta_motion_ready(void);
 
+/**
+ * Stop the 100 ms poll and wait for any in-flight sensor transaction to
+ * finish. Call before sys_poweroff()/reboot so a reset can never strand the
+ * ADXL367 mid-I2C-transaction (slave holding SDA low until power cycle).
+ */
+void juxta_motion_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

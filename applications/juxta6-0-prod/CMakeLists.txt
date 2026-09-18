@@ -15,6 +15,9 @@ target_sources(app PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/../../lib/juxta_id/src/juxta_id.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../lib/juxta_motion/src/juxta_motion.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../lib/juxta_vdd/src/juxta_vdd.c
+	# Vendored ADXL367 driver without boot self-test (CONFIG_ADXL367=n).
+	${CMAKE_CURRENT_SOURCE_DIR}/../../lib/juxta_adxl367/src/adxl367.c
+	${CMAKE_CURRENT_SOURCE_DIR}/../../lib/juxta_adxl367/src/adxl367_i2c.c
 )
 target_include_directories(app PRIVATE
 	src

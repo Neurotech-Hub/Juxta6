@@ -49,18 +49,19 @@ int juxta_log_format(struct juxta_log_context *ctx);
 
 /* Optional progress hook called inside long internal loops (currently the
  * per-sector flash_erase loop inside juxta_log_format).  main.c registers
- * prod_wdt_feed() here so the watchdog is fed during multi-second erases
- * that share a single system-workqueue slot with the periodic feed work
- * (a clearMemory erase therefore starves the periodic feed until it
- * finishes; without this hook the WDT would trip mid-erase).  Implementations
- * must be safe to call from the system workqueue and must not block. */
+ * prod_wdt_feed() here so the hardware watchdog stays fed during multi-second
+ * clearMemory erases: the erase holds the log mutex, which can block the
+ * main-loop feeds for the whole erase.  Implementations must be safe to call
+ * from any workqueue thread and must not block. */
 void juxta_log_set_long_op_tick(void (*tick)(void));
 int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_settings *settings,
 						   const char *device_id, const char *event, uint32_t unix_time);
 int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, uint16_t motion,
 							int32_t batt_mv, int8_t temp_c);
+/* v6: no observer column (constant per device, in the filename); the JX_
+ * prefix is stripped from peer_id before the row is stored. */
 int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t unix_time,
-									 const char *observer_id, const char *peer_id, int8_t rssi);
+									 const char *peer_id, int8_t rssi);
 int juxta_log_list_files(struct juxta_log_context *ctx, char *buffer, size_t buffer_size);
 int juxta_log_find_file(struct juxta_log_context *ctx, const char *path,
 						struct juxta_file_entry *entry);
@@ -74,5 +75,12 @@ int juxta_log_read_file_for_transfer(struct juxta_log_context *ctx,
 									 uint8_t *buffer, size_t buffer_size, size_t *bytes_read);
 int juxta_log_recover_files(struct juxta_log_context *ctx);
 uint8_t juxta_log_memory_level_percent(const struct juxta_log_context *ctx);
+
+/* Drain one pending "region latched full" notification. Returns 1 and copies
+ * the region prefix ("JXS"/"JXV"/"JXB") into prefix (needs >= 4 bytes) if a
+ * region newly latched since the last call, 0 if none, negative on bad args.
+ * main.c polls this at vitals cadence and turns each into a JXS event + RTT
+ * line so multi-week deployments never lose data silently. */
+int juxta_log_take_region_full_event(char *prefix, size_t prefix_len);
 
 #endif /* JUXTA_LOG_H_ */

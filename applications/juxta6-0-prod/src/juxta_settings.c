@@ -29,6 +29,35 @@ void juxta_settings_defaults(struct juxta_settings *settings, const char *device
 	settings->motion_logging = 1U;
 }
 
+/*
+ * Clamp/repair a settings struct. Applied to values loaded from NVS as well
+ * as BLE updates: corrupt or legacy NVS content must never produce a
+ * pathological runtime (vitals_interval_s == 0 makes the production vitals
+ * deadline always due — a battery-draining busy loop) or non-terminated
+ * strings (formatted with %s into Node JSON / JXS rows).
+ */
+static void settings_sanitize(struct juxta_settings *s)
+{
+	s->subject_id[sizeof(s->subject_id) - 1U] = '\0';
+	s->experiment[sizeof(s->experiment) - 1U] = '\0';
+
+	if (s->adv_interval_s > JUXTA_MAX_BLE_INTERVAL_S) {
+		s->adv_interval_s = JUXTA_MAX_BLE_INTERVAL_S;
+	}
+	if (s->scan_interval_s > JUXTA_MAX_BLE_INTERVAL_S) {
+		s->scan_interval_s = JUXTA_MAX_BLE_INTERVAL_S;
+	}
+	if (s->vitals_interval_s == 0U) {
+		s->vitals_interval_s = JUXTA_DEFAULT_VITALS_INTERVAL_S;
+	}
+	if (s->inactivity_multiplier < 1U) {
+		s->inactivity_multiplier = 1U;
+	}
+	if (s->inactivity_multiplier > JUXTA_MAX_INACTIVITY_MULTIPLIER) {
+		s->inactivity_multiplier = JUXTA_MAX_INACTIVITY_MULTIPLIER;
+	}
+}
+
 static int settings_set_handler(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg)
 {
 	if (strcmp(name, "current") == 0) {
@@ -77,6 +106,8 @@ int juxta_settings_init(const char *device_id)
 		LOG_WRN("settings_load (%d) — using defaults", err);
 	}
 
+	settings_sanitize(&current); /* NVS may hold corrupt/legacy values */
+
 	if (current.subject_id[0] == '\0' && device_id != NULL) {
 		(void)snprintf(current.subject_id, sizeof(current.subject_id), "%s", device_id);
 	}
@@ -99,18 +130,7 @@ int juxta_settings_update(const struct juxta_settings *settings)
 	}
 
 	current = *settings;
-	if (current.adv_interval_s > JUXTA_MAX_BLE_INTERVAL_S) {
-		current.adv_interval_s = JUXTA_MAX_BLE_INTERVAL_S;
-	}
-	if (current.scan_interval_s > JUXTA_MAX_BLE_INTERVAL_S) {
-		current.scan_interval_s = JUXTA_MAX_BLE_INTERVAL_S;
-	}
-	if (current.inactivity_multiplier < 1U) {
-		current.inactivity_multiplier = 1U;
-	}
-	if (current.inactivity_multiplier > JUXTA_MAX_INACTIVITY_MULTIPLIER) {
-		current.inactivity_multiplier = JUXTA_MAX_INACTIVITY_MULTIPLIER;
-	}
+	settings_sanitize(&current);
 
 	return settings_save_one("juxta/current", &current, sizeof(current));
 }

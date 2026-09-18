@@ -9,6 +9,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/hci.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
@@ -30,17 +31,20 @@ LOG_MODULE_REGISTER(juxta_ble_service, LOG_LEVEL_INF);
 #define FILENAME_WRITE_MAX_SIZE JUXTA_FILE_NAME_LEN
 
 /* Outgoing listing: JUXTA_MAX_FILES entries, each up to ~24 chars ("name|size;")
- * plus the terminal "EOF" token.  At JUXTA_MAX_FILES=48 that is ~1155 chars;
- * 1536 gives comfortable headroom for a 12-day deployment + EOF + null.
+ * plus the terminal "EOF" token.  At JUXTA_MAX_FILES=72 that is ~1732 chars
+ * worst case; 2048 gives headroom for a 24-day deployment + EOF + null.
  * The buffer is sent in MTU-sized slices over the filename characteristic
  * (see send_file_listing / send_next_listing_chunk); the iOS client buffers
  * chunks until it sees the trailing "...;EOF" or a standalone "EOF" frame. */
-#define FILENAME_LISTING_MAX_SIZE 1536
+#define FILENAME_LISTING_MAX_SIZE 2048
 
 static struct juxta_log_context *log_ctx;
 static struct bt_conn *current_conn;
 static bool production_ready;
 static int32_t (*battery_mv_getter)(void);
+/* NOR fill level pushed by main.c (see juxta_ble_set_memory_level): Node
+ * reads must not walk NOR regions on the BT RX thread. */
+static uint8_t cached_memory_level;
 static uint16_t current_mtu = 23;
 static bool connected;
 static bool transfer_active;
@@ -81,6 +85,11 @@ void juxta_ble_set_battery_mv_source(int32_t (*getter)(void))
 void juxta_ble_set_production_ready(void)
 {
 	production_ready = true;
+}
+
+void juxta_ble_set_memory_level(uint8_t percent)
+{
+	cached_memory_level = percent > 100U ? 100U : percent;
 }
 
 bool juxta_ble_datetime_synced(void)
@@ -214,17 +223,15 @@ static int generate_node_response(char *buffer, size_t buffer_size)
 	char device_id[JUXTA_DEVICE_ID_LEN];
 	const struct juxta_settings *settings = juxta_settings_get();
 	uint8_t battery_level = 0U;
-	uint8_t memory_level = 0U;
+	/* Cached by main.c (log init + vitals cadence): computing this walks a
+	 * NOR region with a main-thread-only buffer — never do it on BT RX. */
+	uint8_t memory_level = cached_memory_level;
 
 	(void)juxta_ble_get_device_id(device_id);
 
 	if (battery_mv_getter)
 	{
 		battery_level = batt_mv_to_percent(battery_mv_getter());
-	}
-	if (log_ctx)
-	{
-		memory_level = juxta_log_memory_level_percent(log_ctx);
 	}
 
 	int written = snprintf(buffer, buffer_size,
@@ -500,7 +507,13 @@ static int apply_gateway_command(const char *json)
 
 	(void)juxta_ble_get_device_id(device_id);
 
-	if (extract_u32(json, "timestamp", &value) == 0)
+	if (extract_u32(json, "timestamp", &value) == 0 && value == 0U)
+	{
+		/* timestamp:0 would mark datetime_synced while juxta_time_is_set()
+		 * stays false — sync would enter production with no usable clock. */
+		LOG_WRN("gateway timestamp=0 ignored");
+	}
+	else if (extract_u32(json, "timestamp", &value) == 0)
 	{
 		/* Always set the clock — needed for file naming and row timestamps. */
 		juxta_time_set(value);
@@ -632,6 +645,24 @@ static int apply_gateway_command(const char *json)
 	return 0;
 }
 
+/* Gateway JSON is applied from the system workqueue, never inline on the BT
+ * RX thread: apply_gateway_command() can block on settings_save_one() (NVS)
+ * and juxta_log_append_event() (NOR write behind a K_FOREVER mutex), the same
+ * class of stall already avoided for clearMemory. */
+static struct k_work gateway_work;
+
+static void gateway_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	int rc = apply_gateway_command(gateway_command);
+
+	if (rc != 0)
+	{
+		LOG_ERR("gateway command failed: %d", rc);
+	}
+}
+
 static ssize_t write_gateway_char(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 								  const void *buf, uint16_t len, uint16_t offset, uint8_t flags)
 {
@@ -644,16 +675,18 @@ static ssize_t write_gateway_char(struct bt_conn *conn, const struct bt_gatt_att
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
-	memcpy(gateway_command + offset, buf, len);
-	gateway_command[offset + len] = '\0';
-
-	int rc = apply_gateway_command(gateway_command);
-	if (rc != 0)
+	/* Previous command still being applied — don't corrupt its buffer.
+	 * Companions write sequentially, so this only rejects abuse. */
+	if (k_work_busy_get(&gateway_work) != 0)
 	{
-		LOG_ERR("gateway command failed: %d", rc);
+		LOG_WRN("gateway write while previous command pending");
 		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
 	}
 
+	memcpy(gateway_command + offset, buf, len);
+	gateway_command[offset + len] = '\0';
+
+	(void)k_work_submit(&gateway_work);
 	return len;
 }
 
@@ -757,6 +790,7 @@ BT_GATT_SERVICE_DEFINE(juxta_hublink_svc, BT_GATT_PRIMARY_SERVICE(BT_UUID_JUXTA_
 int juxta_ble_service_init(struct juxta_log_context *ctx)
 {
 	log_ctx = ctx;
+	k_work_init(&gateway_work, gateway_work_handler);
 	filename_char_attr = bt_gatt_find_by_uuid(juxta_hublink_svc.attrs,
 											  juxta_hublink_svc.attr_count,
 											  BT_UUID_JUXTA_FILENAME_CHAR);

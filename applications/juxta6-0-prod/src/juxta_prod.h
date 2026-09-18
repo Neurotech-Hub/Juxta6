@@ -4,9 +4,14 @@
 #include <stdint.h>
 
 #define JUXTA_PRODUCT_NAME "Juxta6-0"
-#define JUXTA_FIRMWARE_VERSION "6.0.0-nor"
-#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v5"
-#define JUXTA_LOGGING_VERSION 5
+#define JUXTA_FIRMWARE_VERSION "6.1.0"
+/* v6 row compaction: JXB drops the observer column (constant per device,
+ * already in the filename) and the constant JX_ peer prefix; JXB/JXV use
+ * day-relative seconds (date lives in the filename). JXS rows keep absolute
+ * unix. Companion/Hublink parsers update in lockstep; deployed devices need
+ * a clearMemory/format when upgrading (see release notes). */
+#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v6"
+#define JUXTA_LOGGING_VERSION 6
 
 #define JUXTA_DEVICE_ID_LEN 10
 #define JUXTA_SUBJECT_ID_LEN 32
@@ -33,7 +38,11 @@
 #define JUXTA_FILE_NAME_LEN 20
 #define JUXTA_FILE_PATH_LEN 64
 #define JUXTA_CACHE_NAME_LEN 20
-#define JUXTA_MAX_FILES 48
+/* 24 days x 3 file types (JXS/JXV/JXB): rotation cap for a 22-day deployment
+ * with margin.  Knock-on sizes: files[] in juxta_log_context ~5.3 KB static
+ * RAM; the NVS log-cache blob ~2.3 KB (see CONFIG_SETTINGS_NVS_SECTOR_COUNT
+ * in prj.conf, raised for GC headroom). */
+#define JUXTA_MAX_FILES 72
 #define JUXTA_TRANSFER_CHUNK_SIZE 512
 
 enum juxta_op_mode {

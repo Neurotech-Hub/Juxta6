@@ -4,7 +4,9 @@ Juxta-style firmware for nRF54L15 Tag: shelf / magnet / **Hublink GATT sync** /
 dual-antenna advertising RSSI / live ADXL+VDD vitals / **MX25L3233 NOR CSV**.
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
-SPI (`P2.01/02/04`, CS `P2.05`). Layout matches Juxta5-8 (`jxta-nor-csv-v5`):
+SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v6`** (JXV/JXB rows use
+day-relative seconds; JXB drops the observer column and the `JX_` peer prefix.
+Devices upgrading from v5 need a `clearMemory`/format). Layout:
 
 | Region | Start | Size |
 |--------|-------|------|
@@ -30,10 +32,15 @@ once before reboot; no second chirp at `main`).
 
 With J-Link attached (`DCB`/`CoreDebug` `C_DEBUGEN`), System OFF is **simulated**:
 LED off while waiting for BTN1; shelf entry does a **soft reboot** instead of
-`sys_poweroff()` so RTT stays connected (same pattern as Juxta5-8). Detach the
-debugger to exercise real System OFF / pin wake.
+`sys_poweroff()` so RTT stays connected. Detach the debugger to exercise real
+System OFF / pin wake.
 
-Init fault (1 s on / 1 s off, no RTT needed):
+A hardware **watchdog** (`wdt31`, 60 s) arms after bring-up and is fed from all
+long-lived loops (paused while halted by the debugger). Fatal errors reboot
+(`CONFIG_RESET_ON_FATAL_ERROR`).
+
+Init fault (1 s on / 1 s off, no RTT needed) — shown only after **3 automatic
+reboot retries** (~1 s apart) fail; a transient probe failure self-recovers:
 
 | Color | Failed init |
 | ----- | ----------- |
@@ -50,12 +57,12 @@ debugger attached. No consequential I/O in lockout.
 Cold CR2032 boot: **500 ms** settle → VDD/UVLO gate → deferred `device_init`
 (ADXL/NOR/…) → antenna → `bt_enable` → shelf (one white chirp) or sync wake.
 
-## Production radio (Juxta5-8 semantics)
+## Production radio
 
 `scan_interval_s` / `adv_interval_s` are **cadence** (seconds between bursts), not
-burst length. Defaults match 5-8: **scan every 30 s**, **adv every 5 s** (0 =
-disable that modality). Each burst is fixed ~**1 s** (scan = 500 ms ANT1 + 500 ms
-ANT2; adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
+burst length. Defaults: **scan every 30 s**, **adv every 5 s** (0 = disable that
+modality). Each burst is fixed ~**1 s** (scan = 500 ms ANT1 + 500 ms ANT2;
+adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 
 NVS may still hold older 1/1 values from prior builds — write Gateway
 `scanInterval`/`advInterval` or clear settings to pick up new defaults.
@@ -72,8 +79,8 @@ NVS may still hold older 1/1 values from prior builds — write Gateway
 2. Hold **BTN1** 3–10 s → slow green blink, connectable Hublink advertising
    (`JX_XXXXXX` via `bt_set_name` + scan response; Hublink UUID in ADV).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.0.0-nor`, `memoryLevel` from NOR fill); write **Gateway** JSON with
-   `"timestamp": <unix>` (and optional settings).
+   `6.1.0`, `memoryLevel` from NOR fill, refreshed at vitals cadence); write
+   **Gateway** JSON with `"timestamp": <unix>` (and optional settings).
 4. Disconnect → 5× blink → production (LED off).
 5. During production, hold **BTN1** ≥3 s to shelf: **red+blue** while holding,
    LEDs off at 3 s (commit) → **5× green blink** → **1 s** release debounce →
@@ -81,18 +88,19 @@ NVS may still hold older 1/1 values from prior builds — write Gateway
 6. RTT shows `JXB` / `JXV`; companion **LIST** / pull dated `JX{S|V|B}YYYYMMDD.csv`.
 7. Gateway `clearMemory` erases CSV regions (deferred workqueue) then empty LIST.
 
-If the iOS app still filters on `firmwareVersion` starting with `5.8`, allowlist
-`6.0` or temporarily rebuild with a `5.8.x-nor` string after connect succeeds.
+If the iOS app filters on `firmwareVersion`, allowlist `6.1`.
 
 ## RTT line shapes
 
 ```
 JXS unix=<u> event=<name>
-JXB unix=<u> observer=JX_… peer=JX_… rssi=<dBm>
+JXB unix=<u> peer=JX_… rssi=<dBm>
 JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c>
 ```
 
 ## Later milestones
 
-- M3: MCUboot / SMP DFU
+- M3: MCUboot / SMP DFU (wire DFU — port from Juxta 5.8)
 - M4: Encounter Manager + optional CS
+- Temperature: retain BME688, or sync temp from iPhone to calibrate ADXL/IMU (~10 °C skew between devices today)
+- Update iOS companion for firmware 6.1.0 / schema v6 memory mapping

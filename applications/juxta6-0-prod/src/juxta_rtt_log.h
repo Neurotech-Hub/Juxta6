@@ -5,7 +5,8 @@
 #include <stdint.h>
 
 void juxta_rtt_jxs(const char *event);
-void juxta_rtt_jxb(const char *observer, const char *peer, int8_t rssi);
+/* v6: observer dropped from the JXB row (constant per device). */
+void juxta_rtt_jxb(const char *peer, int8_t rssi);
 void juxta_rtt_jxv(uint32_t motion, int32_t batt_mv, float temp_c, bool temp_valid);
 
 #endif /* JUXTA_RTT_LOG_H_ */

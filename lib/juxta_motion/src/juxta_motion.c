@@ -53,6 +53,12 @@ static void suspend_unused(const struct device *dev, const char *name)
 	}
 }
 
+/* Consecutive sensor-read failures: warn every ~60 s of continuous failure
+ * (600 polls at 100 ms) so persistent I2C trouble is visible in RTT without
+ * per-poll spam; log recovery once when reads come back. */
+#define POLL_FAIL_WARN_EVERY 600U
+static uint32_t poll_fail_streak;
+
 static void poll_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
@@ -64,6 +70,18 @@ static void poll_handler(struct k_work *work)
 	ret = sensor_sample_fetch(adxl_dev);
 	if (ret == 0) {
 		ret = sensor_channel_get(adxl_dev, SENSOR_CHAN_ACCEL_XYZ, xyz);
+	}
+
+	if (ret != 0) {
+		poll_fail_streak++;
+		if (poll_fail_streak == 1U || (poll_fail_streak % POLL_FAIL_WARN_EVERY) == 0U) {
+			LOG_WRN("ADXL367 poll failing rc=%d (streak %u)", ret,
+				(unsigned int)poll_fail_streak);
+		}
+	} else if (poll_fail_streak != 0U) {
+		LOG_INF("ADXL367 poll recovered after %u failures",
+			(unsigned int)poll_fail_streak);
+		poll_fail_streak = 0U;
 	}
 
 	if (ret == 0) {
@@ -133,6 +151,19 @@ int juxta_motion_init(bool suspend_unused_sensors)
 bool juxta_motion_ready(void)
 {
 	return ready;
+}
+
+void juxta_motion_stop(void)
+{
+	struct k_work_sync sync;
+
+	if (!ready) {
+		return;
+	}
+
+	ready = false;
+	/* Blocks until a running poll_handler (and its I2C transfer) returns. */
+	(void)k_work_cancel_delayable_sync(&poll_work, &sync);
 }
 
 void juxta_motion_peek(struct juxta_motion_sample *out)

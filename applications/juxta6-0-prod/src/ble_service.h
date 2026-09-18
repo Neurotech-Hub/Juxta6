@@ -42,6 +42,12 @@ int juxta_ble_get_status(uint16_t *mtu, bool *connected, bool *transfer_active);
 void juxta_ble_set_battery_mv_source(int32_t (*getter)(void));
 void juxta_ble_set_production_ready(void);
 
+/* Push the current NOR fill level (0-100) for Node reads. Computing it walks
+ * a whole NOR region with a main-thread-only scratch buffer, so the GATT read
+ * handler must never do it inline on the BT RX thread; main.c refreshes this
+ * after log init and at each vitals tick instead. */
+void juxta_ble_set_memory_level(uint8_t percent);
+
 bool juxta_ble_datetime_synced(void);
 void juxta_ble_clear_datetime_synced(void);
 
