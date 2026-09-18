@@ -37,13 +37,18 @@ Init fault (1 s on / 1 s off, no RTT needed):
 
 | Color | Failed init |
 | ----- | ----------- |
-| Red | SPI NOR (`juxta_log_init`) |
-| Blue | Antenna (`juxta_antenna_init`) |
-| Green | ADXL367 (`juxta_motion_init`) |
+| Red (1 s) | SPI NOR |
+| Blue | Antenna |
+| Green | ADXL367 |
 | White | Late `hardware_ready` guard |
 
-Cold CR2032 boot: **500 ms** settle → deferred `device_init` (ADXL/NOR/…) →
-antenna → `bt_enable` → shelf (one white chirp) or sync wake.
+**UVLO / replace battery** (distinct from NOR red fault): after settle, before
+sensors/NOR/BT — and on each vitals sample — if VDD **&lt; 2500 mV** for 3
+samples → sticky **short red chirp** (~40 ms) / **~2 s off**. Skipped with
+debugger attached. No consequential I/O in lockout.
+
+Cold CR2032 boot: **500 ms** settle → VDD/UVLO gate → deferred `device_init`
+(ADXL/NOR/…) → antenna → `bt_enable` → shelf (one white chirp) or sync wake.
 
 ## Production radio (Juxta5-8 semantics)
 

@@ -21,6 +21,10 @@ int juxta_vdd_init(void)
 {
 	int err;
 
+	if (ready) {
+		return 0;
+	}
+
 	if (!adc_is_ready_dt(&adc_vdd)) {
 		LOG_ERR("ADC device not ready");
 		return -ENODEV;

@@ -145,6 +145,7 @@ static void led_fast_blue_step(bool on)
  *   blue  = antenna switch (juxta_antenna_init)
  *   green = ADXL367 (juxta_motion_init)
  *   white = late hardware_ready guard
+ * UVLO uses a different pattern: short red chirp + long off (see enter_uvlo_lockout).
  */
 static void led_long_blink_fault(bool r, bool g, bool b)
 {
@@ -163,6 +164,62 @@ static void led_long_blink_fault(bool r, bool g, bool b)
 		leds_off();
 		k_sleep(K_SECONDS(1));
 	}
+}
+
+/* Sticky replace-battery mode: no radio / NOR; short red chirp, long sleep. */
+static void enter_uvlo_lockout(const char *reason)
+{
+	LOG_ERR("UVLO lockout (%s) — replace CR2032 (VDD < %d mV)",
+		reason != NULL ? reason : "battery", BATT_UVLO_MV);
+	(void)bt_le_adv_stop();
+	(void)bt_le_scan_stop();
+	leds_off();
+
+	while (1) {
+		(void)gpio_pin_set_dt(&led_r, 1);
+		k_sleep(K_MSEC(BATT_UVLO_LED_ON_MS));
+		leds_off();
+		k_sleep(K_MSEC(BATT_UVLO_LED_OFF_MS));
+	}
+}
+
+/*
+ * Multi-sample gate (Juxta5-8 style). Returns true if all samples are valid
+ * and below UVLO. Skipped under debugger (bench supply / no cell).
+ */
+static bool battery_uvlo_tripped(void)
+{
+	uint8_t low = 0U;
+	int32_t last_mv = 0;
+
+	if (debugger_attached()) {
+		return false;
+	}
+
+	for (uint8_t i = 0U; i < BATT_UVLO_GATE_SAMPLES; i++) {
+		int32_t mv = juxta_vdd_read_mv();
+
+		LOG_INF("UVLO sample %u/%u: %d mV", (unsigned int)(i + 1U),
+			(unsigned int)BATT_UVLO_GATE_SAMPLES, (int)mv);
+		if (mv > 0 && mv < BATT_UVLO_MV) {
+			low++;
+		}
+		last_mv = mv;
+		if (i + 1U < BATT_UVLO_GATE_SAMPLES) {
+			k_sleep(K_MSEC(BATT_UVLO_GATE_GAP_MS));
+		}
+	}
+
+	if (low == BATT_UVLO_GATE_SAMPLES) {
+		LOG_WRN("UVLO: %u/%u samples < %d mV (last %d)", (unsigned int)low,
+			(unsigned int)BATT_UVLO_GATE_SAMPLES, BATT_UVLO_MV, (int)last_mv);
+		return true;
+	}
+	if (low > 0U) {
+		LOG_WRN("UVLO: only %u/%u low — treating as transient, continuing",
+			(unsigned int)low, (unsigned int)BATT_UVLO_GATE_SAMPLES);
+	}
+	return false;
 }
 
 /* CR2032 cold-boot: brief settle + retry before hard-fault LED. */
@@ -605,6 +662,15 @@ static void production_vitals(void)
 	}
 	juxta_rtt_jxv(m.motion_count, batt, m.temp_c, m.temp_valid);
 
+	if (battery_uvlo_tripped()) {
+		if (log_ctx.initialized && juxta_time_is_set()) {
+			(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name,
+						     "low_battery", juxta_time_now());
+			k_sleep(K_MSEC(50));
+		}
+		enter_uvlo_lockout("vitals");
+	}
+
 	if (!log_ctx.initialized || !juxta_time_is_set()) {
 		return;
 	}
@@ -766,6 +832,22 @@ int main(void)
 	juxta_time_init();
 
 	/*
+	 * UVLO before consequential I/O: VDD ADC only, then multi-sample gate.
+	 * Fail → sticky red chirp (replace battery); no sensors/NOR/BT.
+	 */
+	err = juxta_vdd_init();
+	if (err) {
+		LOG_WRN("vdd_init (%d) — UVLO gate skipped", err);
+	} else if (battery_uvlo_tripped()) {
+		enter_uvlo_lockout("boot");
+	} else {
+		int32_t mv = juxta_vdd_read_mv();
+
+		LOG_INF("VDD ok batt_mv=%d pct~%u", (int)mv,
+			mv < 0 ? 0U : juxta_vdd_mv_to_percent_cr2032(mv));
+	}
+
+	/*
 	 * Bring up deferred peripherals now that VDD has had settle time.
 	 * ADXL + NOR are required; BME/BMI are optional (suspend best-effort).
 	 */
@@ -800,16 +882,6 @@ int main(void)
 	if (err) {
 		LOG_ERR("antenna_init (%d)", err);
 		led_long_blink_fault(false, false, true); /* blue */
-	}
-
-	err = juxta_vdd_init();
-	if (err) {
-		LOG_WRN("vdd_init (%d) — battery soft-fail", err);
-	} else {
-		int32_t mv = juxta_vdd_read_mv();
-
-		LOG_INF("VDD sample batt_mv=%d pct~%u", (int)mv,
-			mv < 0 ? 0U : juxta_vdd_mv_to_percent_cr2032(mv));
 	}
 
 	err = bt_enable(NULL);

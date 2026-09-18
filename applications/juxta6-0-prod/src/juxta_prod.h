@@ -22,6 +22,13 @@
 #define MAGNET_DEBOUNCE_MS 3000U
 #define DFU_HOLD_THRESHOLD_MS 10000U
 
+/* CR2032 UVLO: below this, refuse consequential boot / leave production. */
+#define BATT_UVLO_MV 2500
+#define BATT_UVLO_GATE_SAMPLES 3U
+#define BATT_UVLO_GATE_GAP_MS 10U
+#define BATT_UVLO_LED_ON_MS 40U
+#define BATT_UVLO_LED_OFF_MS 2000U
+
 /* Filenames are "JXByyyymmdd.csv" = 15 chars + null. */
 #define JUXTA_FILE_NAME_LEN 20
 #define JUXTA_FILE_PATH_LEN 64
