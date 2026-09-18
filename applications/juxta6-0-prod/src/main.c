@@ -3,6 +3,7 @@
  * MX25L3233 NOR CSV (JXS/JXV/JXB) with RTT mirrors. No MCUboot/CS.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -37,8 +38,12 @@
 LOG_MODULE_REGISTER(juxta6_0_prod, LOG_LEVEL_INF);
 
 #define PEER_SLOT_COUNT 8U
-#define ANT_DWELL_MS 500U
-#define ADV_BURST_MS 1000U
+#define ANT_DWELL_MS 500U   /* per-antenna dwell inside one scan burst */
+#define SCAN_BURST_MS 1000U /* total passive scan wall time (2 × ANT_DWELL) */
+#define ADV_BURST_MS 1000U  /* non-connectable adv burst wall time */
+
+BUILD_ASSERT(ANT_DWELL_MS * 2U == SCAN_BURST_MS, "scan burst must be two antenna dwells");
+
 
 #if !DT_NODE_EXISTS(DT_NODELABEL(led1_red)) || !DT_NODE_EXISTS(DT_NODELABEL(led1_green)) ||       \
 	!DT_NODE_EXISTS(DT_NODELABEL(led1_blue))
@@ -108,6 +113,16 @@ static void leds_off(void)
 	(void)gpio_pin_set_dt(&led_b, 0);
 }
 
+/* Brief white flash on every POR / soft reboot so cold-boot is visible without RTT. */
+static void led_boot_chirp(void)
+{
+	(void)gpio_pin_set_dt(&led_r, 1);
+	(void)gpio_pin_set_dt(&led_g, 1);
+	(void)gpio_pin_set_dt(&led_b, 1);
+	k_sleep(K_MSEC(20));
+	leds_off();
+}
+
 static void led_slow_blink_step(bool on)
 {
 	leds_off();
@@ -124,17 +139,103 @@ static void led_fast_blue_step(bool on)
 	}
 }
 
-static void led_long_blink_fault(void)
+/*
+ * Init fault: 1 s on / 1 s off, color encodes which check failed (battery HIL).
+ *   red   = SPI NOR (juxta_log_init)
+ *   blue  = antenna switch (juxta_antenna_init)
+ *   green = ADXL367 (juxta_motion_init)
+ *   white = late hardware_ready guard
+ */
+static void led_long_blink_fault(bool r, bool g, bool b)
 {
 	while (1) {
 		leds_off();
-		(void)gpio_pin_set_dt(&led_r, 1);
-		(void)gpio_pin_set_dt(&led_g, 1);
-		(void)gpio_pin_set_dt(&led_b, 1);
+		if (r) {
+			(void)gpio_pin_set_dt(&led_r, 1);
+		}
+		if (g) {
+			(void)gpio_pin_set_dt(&led_g, 1);
+		}
+		if (b) {
+			(void)gpio_pin_set_dt(&led_b, 1);
+		}
 		k_sleep(K_SECONDS(1));
 		leds_off();
 		k_sleep(K_SECONDS(1));
 	}
+}
+
+/* CR2032 cold-boot: brief settle + retry before hard-fault LED. */
+#define INIT_RETRY_ATTEMPTS 5
+#define INIT_RETRY_DELAY_MS 100
+
+static int init_with_retry(const char *name, int (*fn)(void))
+{
+	int err = -ENODEV;
+
+	for (int attempt = 1; attempt <= INIT_RETRY_ATTEMPTS; attempt++) {
+		err = fn();
+		if (err == 0) {
+			if (attempt > 1) {
+				LOG_INF("%s ok on attempt %d", name, attempt);
+			}
+			return 0;
+		}
+		LOG_WRN("%s attempt %d/%d rc=%d", name, attempt, INIT_RETRY_ATTEMPTS, err);
+		k_sleep(K_MSEC(INIT_RETRY_DELAY_MS));
+	}
+
+	return err;
+}
+
+/* device_init() for zephyr,deferred-init nodes (skipped at POST_KERNEL). */
+static int deferred_device_init_once(const struct device *dev)
+{
+	int err;
+
+	if (dev == NULL) {
+		return -ENODEV;
+	}
+
+	err = device_init(dev);
+	if (err == -EALREADY) {
+		return 0;
+	}
+	return err;
+}
+
+static int deferred_adxl_init(void)
+{
+	return deferred_device_init_once(DEVICE_DT_GET(DT_NODELABEL(adxl367)));
+}
+
+static int deferred_nor_init(void)
+{
+	return deferred_device_init_once(DEVICE_DT_GET(DT_ALIAS(spi_mem)));
+}
+
+static void deferred_optional_sensor_init(const struct device *dev, const char *name)
+{
+	int err = deferred_device_init_once(dev);
+
+	if (err != 0) {
+		LOG_WRN("%s deferred device_init rc=%d (optional)", name, err);
+	}
+}
+
+static int motion_init_once(void)
+{
+	return juxta_motion_init(true);
+}
+
+static int antenna_init_once(void)
+{
+	return juxta_antenna_init();
+}
+
+static int log_init_once(void)
+{
+	return juxta_log_init(&log_ctx, juxta_settings_get(), local_name);
 }
 
 static void blink_n(uint8_t n)
@@ -163,6 +264,9 @@ static void enter_shelf(const char *reason)
 	(void)bt_le_adv_stop();
 	(void)bt_le_scan_stop();
 	k_sleep(K_MSEC(100)); /* flush RTT */
+
+	/* Same alive cue for POR→shelf and prod/gateway→shelf (only chirp site). */
+	led_boot_chirp();
 
 	/*
 	 * With a debugger attached, sys_poweroff() breaks SWD/RTT. Soft-reboot
@@ -525,6 +629,8 @@ static void run_production(void)
 {
 	const struct juxta_settings *s;
 	int64_t next_vitals;
+	uint32_t last_scan_s = 0U;
+	uint32_t last_adv_s = 0U;
 	struct bt_le_scan_param scan_param = {
 		.type = BT_LE_SCAN_TYPE_PASSIVE,
 		.options = BT_LE_SCAN_OPT_NONE,
@@ -533,7 +639,7 @@ static void run_production(void)
 	};
 
 	if (!hardware_ready) {
-		led_long_blink_fault();
+		led_long_blink_fault(true, true, true); /* white */
 	}
 
 	atomic_set(&app_mode, JUXTA_OP_MODE_PROD);
@@ -544,55 +650,78 @@ static void run_production(void)
 
 	s = juxta_settings_get();
 	next_vitals = k_uptime_get() + (int64_t)s->vitals_interval_s * 1000;
+	/* Fire first due bursts promptly (Juxta5-8: last_* starts at 0). */
+	last_scan_s = 0U;
+	last_adv_s = 0U;
 
 	while ((int)atomic_get(&app_mode) == JUXTA_OP_MODE_PROD) {
+		uint32_t now_s = (uint32_t)(k_uptime_get() / 1000);
+		bool scan_due;
+		bool adv_due;
+
 		if (atomic_cas(&reset_to_shelf_req, 1, 0)) {
 			enter_shelf("gateway_reset");
 		}
 
-		/* Magnet during prod → shelf */
+		/* Magnet during prod → shelf (R+B cue, off at 3 s = commit) */
 		if (gpio_pin_get_dt(&button) > 0) {
 			int held = 0;
+			bool committed = false;
 
-			while (gpio_pin_get_dt(&button) > 0 && held < (int)MAGNET_DEBOUNCE_MS) {
+			leds_off();
+			(void)gpio_pin_set_dt(&led_r, 1);
+			(void)gpio_pin_set_dt(&led_b, 1);
+
+			while (gpio_pin_get_dt(&button) > 0) {
 				k_sleep(K_MSEC(20));
 				held += 20;
+				if (held >= (int)MAGNET_DEBOUNCE_MS) {
+					committed = true;
+					leds_off(); /* commit cue */
+					break;
+				}
 			}
-			if (held >= (int)MAGNET_DEBOUNCE_MS) {
+
+			if (committed) {
+				blink_n(5);
+				/* Let the user release before System OFF wake-sense arms. */
+				k_sleep(K_SECONDS(1));
+				while (gpio_pin_get_dt(&button) > 0) {
+					k_sleep(K_MSEC(20));
+				}
 				enter_shelf("magnet");
 			}
+			leds_off();
 		}
 
 		s = juxta_settings_get();
+		/*
+		 * Juxta5-8 semantics: scan_interval_s / adv_interval_s are cadence
+		 * (seconds between bursts). Burst length is fixed ~1 s — never both
+		 * at once; scan wins when both are due.
+		 */
+		scan_due = (s->scan_interval_s > 0U) &&
+			   ((uint64_t)now_s >= (uint64_t)last_scan_s + (uint64_t)s->scan_interval_s);
+		adv_due = (s->adv_interval_s > 0U) &&
+			  ((uint64_t)now_s >= (uint64_t)last_adv_s + (uint64_t)s->adv_interval_s);
 
-		if (s->scan_interval_s > 0U) {
-			uint32_t scan_ms = (uint32_t)s->scan_interval_s * 1000U;
-			uint32_t dwell_ms = scan_ms / 2U;
-
-			if (dwell_ms < ANT_DWELL_MS) {
-				dwell_ms = ANT_DWELL_MS;
-			}
+		if (scan_due) {
+			last_scan_s = now_s;
 			peers_clear();
 			(void)juxta_antenna_select(1);
 			(void)bt_le_scan_start(&scan_param, NULL);
-			k_sleep(K_MSEC(dwell_ms));
+			k_sleep(K_MSEC(ANT_DWELL_MS));
 			(void)juxta_antenna_select(2);
-			k_sleep(K_MSEC(dwell_ms));
+			k_sleep(K_MSEC(ANT_DWELL_MS));
 			(void)bt_le_scan_stop();
 			peers_flush_jxb();
-		}
-
-		if (s->adv_interval_s > 0U) {
-			uint32_t adv_ms = (uint32_t)s->adv_interval_s * 1000U;
-
-			if (adv_ms < ADV_BURST_MS) {
-				adv_ms = ADV_BURST_MS;
-			}
+		} else if (adv_due) {
+			last_adv_s = now_s;
 			(void)juxta_antenna_select(1);
 			ad_prod[1].data_len = (uint8_t)strlen(local_name);
 			if (bt_le_adv_start(BT_LE_ADV_NCONN_IDENTITY, ad_prod, ARRAY_SIZE(ad_prod),
 					    NULL, 0) == 0) {
-				k_sleep(K_MSEC(adv_ms));
+				k_sleep(K_MSEC(ADV_BURST_MS));
 				(void)bt_le_adv_stop();
 			}
 		}
@@ -614,6 +743,18 @@ int main(void)
 	k_mutex_init(&peers_lock);
 	k_work_init(&clear_memory_work, clear_memory_work_handler);
 
+	/*
+	 * DO NOT REMOVE — physical CR2032 reseat contact settle.
+	 *
+	 * Battery holder bounce lasts tens of ms after insertion. A clean PPK /
+	 * GUI power toggle never fails; reseat was intermittent until settle +
+	 * deferred device_init. ADXL / BME / BMI / SPI NOR are zephyr,deferred-init
+	 * in the app overlay so POST_KERNEL does not probe them during bounce —
+	 * device_init() runs only after this sleep. Do not shorten/delete without
+	 * reseat HIL. Currently 500 ms to stress-test the contact-settle hypothesis.
+	 */
+	k_sleep(K_MSEC(500));
+
 	(void)gpio_pin_configure_dt(&led_r, GPIO_OUTPUT_INACTIVE);
 	(void)gpio_pin_configure_dt(&led_g, GPIO_OUTPUT_INACTIVE);
 	(void)gpio_pin_configure_dt(&led_b, GPIO_OUTPUT_INACTIVE);
@@ -623,6 +764,53 @@ int main(void)
 	(void)hwinfo_clear_reset_cause();
 
 	juxta_time_init();
+
+	/*
+	 * Bring up deferred peripherals now that VDD has had settle time.
+	 * ADXL + NOR are required; BME/BMI are optional (suspend best-effort).
+	 */
+	err = init_with_retry("adxl367", deferred_adxl_init);
+	if (err) {
+		LOG_ERR("adxl367 device_init (%d) — hardware fault", err);
+		led_long_blink_fault(false, true, false); /* green */
+	}
+#if DT_NODE_EXISTS(DT_NODELABEL(bme688))
+	deferred_optional_sensor_init(DEVICE_DT_GET(DT_NODELABEL(bme688)), "bme688");
+#endif
+#if DT_NODE_EXISTS(DT_NODELABEL(bmi270))
+	deferred_optional_sensor_init(DEVICE_DT_GET(DT_NODELABEL(bmi270)), "bmi270");
+#endif
+	err = init_with_retry("spi_nor", deferred_nor_init);
+	if (err) {
+		LOG_ERR("spi_nor device_init (%d) — NOR required for M2", err);
+		led_long_blink_fault(true, false, false); /* red */
+	}
+
+	/*
+	 * Sensors / antenna before bt_enable: avoid radio bring-up before
+	 * motion poll / antenna GPIO are ready.
+	 */
+	err = init_with_retry("motion_init", motion_init_once);
+	if (err) {
+		LOG_ERR("motion_init (%d) — hardware fault", err);
+		led_long_blink_fault(false, true, false); /* green */
+	}
+
+	err = init_with_retry("antenna_init", antenna_init_once);
+	if (err) {
+		LOG_ERR("antenna_init (%d)", err);
+		led_long_blink_fault(false, false, true); /* blue */
+	}
+
+	err = juxta_vdd_init();
+	if (err) {
+		LOG_WRN("vdd_init (%d) — battery soft-fail", err);
+	} else {
+		int32_t mv = juxta_vdd_read_mv();
+
+		LOG_INF("VDD sample batt_mv=%d pct~%u", (int)mv,
+			mv < 0 ? 0U : juxta_vdd_mv_to_percent_cr2032(mv));
+	}
 
 	err = bt_enable(NULL);
 	if (err) {
@@ -648,38 +836,17 @@ int main(void)
 		LOG_WRN("settings_init (%d)", err);
 	}
 
-	err = juxta_log_init(&log_ctx, juxta_settings_get(), local_name);
+	err = init_with_retry("juxta_log_init", log_init_once);
 	if (err) {
 		LOG_ERR("juxta_log_init (%d) — NOR required for M2", err);
-		led_long_blink_fault();
+		led_long_blink_fault(true, false, false); /* red */
 	}
 	(void)juxta_checkpoint_init();
-
-	err = juxta_vdd_init();
-	if (err) {
-		LOG_WRN("vdd_init (%d) — battery soft-fail", err);
-	} else {
-		int32_t mv = juxta_vdd_read_mv();
-
-		LOG_INF("VDD sample batt_mv=%d pct~%u", (int)mv,
-			mv < 0 ? 0U : juxta_vdd_mv_to_percent_cr2032(mv));
-	}
 
 	(void)juxta_ble_service_init(&log_ctx);
 	juxta_ble_set_battery_mv_source(battery_mv_source);
 	bt_le_scan_cb_register(&scan_cb);
 
-	err = juxta_antenna_init();
-	if (err) {
-		LOG_ERR("antenna_init (%d)", err);
-		led_long_blink_fault();
-	}
-
-	err = juxta_motion_init(true);
-	if (err) {
-		LOG_ERR("motion_init (%d) — hardware fault", err);
-		led_long_blink_fault();
-	}
 	hardware_ready = true;
 
 	LOG_INF("%s %s local=%s resetreas=0x%x debugger=%d", JUXTA_PRODUCT_NAME,

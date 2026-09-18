@@ -1,5 +1,8 @@
 /*
  * juxta6-0-prod: un-hog SKY13348 + SAADC VDD + MX25L3233 (32 Mbit) on spi00.
+ *
+ * Sensors + external NOR use zephyr,deferred-init so their driver probes run
+ * from main() after the CR2032 contact-settle sleep (not during POST_KERNEL).
  */
 
 / {
@@ -71,5 +74,19 @@
 		has-dpd;
 		t-enter-dpd = <10000>;
 		t-exit-dpd = <100000>;
+		zephyr,deferred-init;
 	};
+};
+
+/* Probe after contact settle in main() — see juxta6-0-prod src/main.c. */
+&adxl367 {
+	zephyr,deferred-init;
+};
+
+&bme688 {
+	zephyr,deferred-init;
+};
+
+&bmi270 {
+	zephyr,deferred-init;
 };

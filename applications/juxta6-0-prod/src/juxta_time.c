@@ -91,5 +91,9 @@ void juxta_time_date_string(uint32_t unix_time, char out[9])
 	}
 
 	juxta_time_ymd(unix_time, &year, &month, &day);
+	/* Clamp so YYYYMMDD always fits out[9]; silences -Wformat-truncation. */
+	year = CLAMP(year, 1970, 9999);
+	month = CLAMP(month, 1, 12);
+	day = CLAMP(day, 1, 31);
 	(void)snprintf(out, 9, "%04d%02d%02d", year, month, day);
 }

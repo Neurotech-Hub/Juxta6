@@ -8,8 +8,8 @@
 struct juxta_settings {
 	char subject_id[JUXTA_SUBJECT_ID_LEN];
 	char experiment[JUXTA_EXPERIMENT_LEN];
-	uint16_t adv_interval_s;
-	uint16_t scan_interval_s;
+	uint16_t adv_interval_s;  /* 0 = off; else seconds between 1 s non-conn adv bursts */
+	uint16_t scan_interval_s; /* 0 = off; else seconds between 1 s passive scan bursts */
 	uint16_t vitals_interval_s;
 	uint8_t inactivity_multiplier;
 	uint8_t motion_logging;

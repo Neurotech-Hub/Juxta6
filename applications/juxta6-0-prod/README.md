@@ -19,10 +19,41 @@ LED cue + RTT/`dfu_requested` only). **No Channel Sounding.**
 
 ## Debugger / RTT
 
+Every POR / soft reboot waits **500 ms** (contact settle — do not remove; temporarily
+lengthened to validate reseat hypothesis). ADXL / BME / BMI / SPI NOR are
+`zephyr,deferred-init` so they are **not** probed during `POST_KERNEL`;
+`device_init()` runs only after that settle.
+
+A single **~20 ms white LED chirp** runs in `enter_shelf()` only — covers cold
+boot→shelf, prod magnet escape, and gateway reset (debugger soft-reboot chirps
+once before reboot; no second chirp at `main`).
+
 With J-Link attached (`DCB`/`CoreDebug` `C_DEBUGEN`), System OFF is **simulated**:
 LED off while waiting for BTN1; shelf entry does a **soft reboot** instead of
 `sys_poweroff()` so RTT stays connected (same pattern as Juxta5-8). Detach the
 debugger to exercise real System OFF / pin wake.
+
+Init fault (1 s on / 1 s off, no RTT needed):
+
+| Color | Failed init |
+| ----- | ----------- |
+| Red | SPI NOR (`juxta_log_init`) |
+| Blue | Antenna (`juxta_antenna_init`) |
+| Green | ADXL367 (`juxta_motion_init`) |
+| White | Late `hardware_ready` guard |
+
+Cold CR2032 boot: **500 ms** settle → deferred `device_init` (ADXL/NOR/…) →
+antenna → `bt_enable` → shelf (one white chirp) or sync wake.
+
+## Production radio (Juxta5-8 semantics)
+
+`scan_interval_s` / `adv_interval_s` are **cadence** (seconds between bursts), not
+burst length. Defaults match 5-8: **scan every 30 s**, **adv every 5 s** (0 =
+disable that modality). Each burst is fixed ~**1 s** (scan = 500 ms ANT1 + 500 ms
+ANT2; adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
+
+NVS may still hold older 1/1 values from prior builds — write Gateway
+`scanInterval`/`advInterval` or clear settings to pick up new defaults.
 
 ## Build / flash (user)
 
@@ -39,8 +70,11 @@ debugger to exercise real System OFF / pin wake.
    `6.0.0-nor`, `memoryLevel` from NOR fill); write **Gateway** JSON with
    `"timestamp": <unix>` (and optional settings).
 4. Disconnect → 5× blink → production (LED off).
-5. RTT shows `JXB` / `JXV`; companion **LIST** / pull dated `JX{S|V|B}YYYYMMDD.csv`.
-6. Gateway `clearMemory` erases CSV regions (deferred workqueue) then empty LIST.
+5. During production, hold **BTN1** ≥3 s to shelf: **red+blue** while holding,
+   LEDs off at 3 s (commit) → **5× green blink** → **1 s** release debounce →
+   white chirp → System OFF / debugger soft-reboot.
+6. RTT shows `JXB` / `JXV`; companion **LIST** / pull dated `JX{S|V|B}YYYYMMDD.csv`.
+7. Gateway `clearMemory` erases CSV regions (deferred workqueue) then empty LIST.
 
 If the iOS app still filters on `firmwareVersion` starting with `5.8`, allowlist
 `6.0` or temporarily rebuild with a `5.8.x-nor` string after connect succeeds.
