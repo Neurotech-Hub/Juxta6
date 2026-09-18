@@ -77,6 +77,19 @@ void juxta_log_set_long_op_tick(void (*tick)(void))
  * path that discovered the latch. */
 static uint8_t s_region_full_pending;
 
+/* Single recursive-style mutex guarding every public juxta_log_* entry
+ * point.  Zephyr's k_mutex is already recursive (counts re-locks by the
+ * owning thread), so juxta_log_init -> juxta_log_format -> erase_region
+ * paths self-nest safely.  Production is non-connectable between sync sessions,
+ * so BT RX does not touch the log concurrently with the system workqueue;
+ * the mutex still guards against any future path where two threads could reach
+ * a juxta_log_* call and tear shared static buffers (chunk[], row[], header[],
+ * find_eof_or_erased buf[]) or ctx->files[]/file_count mutations. */
+K_MUTEX_DEFINE(s_log_mutex);
+
+#define LOG_LOCK() (void)k_mutex_lock(&s_log_mutex, K_FOREVER)
+#define LOG_UNLOCK() (void)k_mutex_unlock(&s_log_mutex)
+
 int juxta_log_take_region_full_event(char *prefix, size_t prefix_len)
 {
 	int taken = 0;
@@ -100,19 +113,6 @@ int juxta_log_take_region_full_event(char *prefix, size_t prefix_len)
 	LOG_UNLOCK();
 	return taken;
 }
-
-/* Single recursive-style mutex guarding every public juxta_log_* entry
- * point.  Zephyr's k_mutex is already recursive (counts re-locks by the
- * owning thread), so juxta_log_init -> juxta_log_format -> erase_region
- * paths self-nest safely.  Production is non-connectable between sync sessions,
- * so BT RX does not touch the log concurrently with the system workqueue;
- * the mutex still guards against any future path where two threads could reach
- * a juxta_log_* call and tear shared static buffers (chunk[], row[], header[],
- * find_eof_or_erased buf[]) or ctx->files[]/file_count mutations. */
-K_MUTEX_DEFINE(s_log_mutex);
-
-#define LOG_LOCK() (void)k_mutex_lock(&s_log_mutex, K_FOREVER)
-#define LOG_UNLOCK() (void)k_mutex_unlock(&s_log_mutex)
 
 /* Cached device identifier, populated by juxta_log_init().  ensure_file() uses
  * this to format the JXS `day_start` row on new-file creation without needing
