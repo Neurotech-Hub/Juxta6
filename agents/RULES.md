@@ -1,4 +1,4 @@
-# Agent rules (Juxta6-nRF)
+# Agent rules (Juxta6)
 
 Canonical constraints for Cursor / coding agents. Cursor also loads a short alwaysApply mirror under `.cursor/rules/`.
 

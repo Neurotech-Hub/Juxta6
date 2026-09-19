@@ -88,3 +88,7 @@ UTC `timestamp`, `sendFilenames`, settings fields, `clearMemory`, `reset` (shelf
 ## Firmware update (DFU)
 
 Juxta6 does not flash firmware yet. Use magnet DFU cue + Nordic **nRF Connect** when images are available.
+
+## License
+
+Proprietary — see the repository [LICENSE](../../LICENSE). Reuse requires explicit written permission.

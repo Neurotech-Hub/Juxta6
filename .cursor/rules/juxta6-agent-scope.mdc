@@ -1,9 +1,9 @@
 ---
-description: Juxta6-nRF agent scope — user owns nRF Connect build/flash/debug
+description: Juxta6 agent scope — user owns nRF Connect build/flash/debug
 alwaysApply: true
 ---
 
-# Juxta6-nRF agent scope
+# Juxta6 agent scope
 
 Canonical detail: `agents/RULES.md`.
 

@@ -4,7 +4,7 @@ Client-side plotting for **Juxta6-0** Tag daily CSV exports (`jxta-nor-csv-v6`).
 
 **Live (GitHub Pages):** after Pages is enabled on this repo (Actions source), the site is served from this folder:
 
-`https://neurotech-hub.github.io/Juxta6-nRF/`
+`https://neurotech-hub.github.io/Juxta6/`
 
 ## Supported files (schema v6)
 
@@ -24,7 +24,7 @@ Filenames must be `JX{S\|V\|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative 
 - **System events** — JXS table with timezone conversion
 - **Summary** — click-to-copy plain text
 
-Timezone dropdown: Eastern (default) or Central.
+Timezone dropdown: Central, Eastern, or UTC (default). Data is recorded in UTC; selecting UTC shows timestamps as stored.
 
 ## Running locally
 
@@ -42,3 +42,7 @@ This monorepo deploys **only** `plotter/` via [`.github/workflows/pages.yml`](..
 1. Push to `main`.
 2. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 3. Site root = plotter contents (PapaParse / Plotly from CDN; no build step).
+
+## License
+
+Proprietary — see the repository [LICENSE](../LICENSE). Reuse requires explicit written permission.

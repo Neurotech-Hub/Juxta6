@@ -1,8 +1,19 @@
-# Juxta6-nRF
+# Juxta6
 
-nRF Connect SDK workspace for the **nRF54L15 Tag**. Isolated HIL apps establish ground-truth fixtures for opportunistic **mobile↔mobile** ranging before production firmware.
+Monorepo for the **Juxta6** wireless Tag platform (nRF54L15): production firmware,
+hardware bring-up fixtures, an iOS companion, and a browser plotter for daily CSV
+logs (`jxta-nor-csv-v6`).
 
-Architecture brief: [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md).
+| Area | What |
+| --- | --- |
+| Firmware | [`applications/juxta6-0-prod`](applications/juxta6-0-prod) — shelf / Hublink sync / NOR CSV / vitals |
+| HIL | Isolated Tag apps under [`applications/`](applications/) for LED, sensors, flash, BLE, CS |
+| Companion | [`companion/iOS`](companion/iOS) — **Juxta6** Xcode app (connect, settings, file transfer) |
+| Plotter | [`plotter/`](plotter/) — **Juxta6 Plotter** ([live](https://neurotech-hub.github.io/Juxta6/)) |
+| Libs | [`lib/`](lib/) — ID, motion (ADXL367), VDD, Channel Sounding isolation |
+| Spec | [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md) |
+
+**License:** proprietary — see [LICENSE](LICENSE). Reuse (academic or commercial) requires explicit written permission from Neurotech Hub.
 
 ## Platform
 
@@ -110,7 +121,7 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | --- | --- |
 | `juxta6-0-prod` | Shelf / magnet / Hublink sync / dual-ant max-RSSI / live vitals / **MX25L3233 NOR CSV** + Filename/File Transfer; RTT mirrors. See [applications/juxta6-0-prod/README.md](applications/juxta6-0-prod/README.md). |
 | Companion | [companion/iOS](companion/iOS) — **Juxta6** Xcode app (firmware 6.x / `jxta-nor-csv-v6`). Open `Juxta6.xcodeproj` (not west). |
-| Plotter | [plotter/](plotter/) — **Juxta6 Plotter** (browser CSV plots for schema v6). GitHub Pages deploys this folder via Actions. |
+| Plotter | [plotter/](plotter/) — **Juxta6 Plotter** ([https://neurotech-hub.github.io/Juxta6/](https://neurotech-hub.github.io/Juxta6/)). |
 
 ## Later milestones
 
@@ -132,5 +143,6 @@ No MCUboot/DFU (cue only), Channel Sounding in prod, Encounter Manager, LED2/BTN
 - [docs/nRF54L15_Tag_Hardware_Reference.md](docs/nRF54L15_Tag_Hardware_Reference.md)
 - [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md)
 - [lib/juxta_range/README.md](lib/juxta_range/README.md)
-- [plotter/](plotter/) — Juxta6 Plotter (GitHub Pages)
+- [plotter/](plotter/) — Juxta6 Plotter ([GitHub Pages](https://neurotech-hub.github.io/Juxta6/))
+- [LICENSE](LICENSE) — proprietary; permission required for reuse
 - [reference/juxta5-8/REFERENCE.md](reference/juxta5-8/REFERENCE.md)

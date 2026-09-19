@@ -3,8 +3,9 @@
  * filename); JXS keeps absolute `unix`. Downstream plots/summary use unix. */
 
 const TZ_ABBR = {
-  "America/New_York": "ET",
   "America/Chicago": "CT",
+  "America/New_York": "ET",
+  "UTC": "UTC",
 };
 
 // Returns "YYYY-MM-DD HH:mm:ss" in the given timezone — the string format
