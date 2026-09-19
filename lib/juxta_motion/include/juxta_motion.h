@@ -38,6 +38,13 @@ void juxta_motion_take(struct juxta_motion_sample *out);
 bool juxta_motion_ready(void);
 
 /**
+ * Soft-calibrate ADXL die temp using ambient °C from the gateway (e.g. Open-Meteo).
+ * Sets offset = ambient_c - current_die_temp when die temp is valid; otherwise
+ * stores ambient and applies on the next successful DIE_TEMP poll. RAM-only.
+ */
+void juxta_motion_set_temp_offset_c(float ambient_c);
+
+/**
  * Stop the 100 ms poll and wait for any in-flight sensor transaction to
  * finish. Call before sys_poweroff()/reboot so a reset can never strand the
  * ADXL367 mid-I2C-transaction (slave holding SDA low until power cycle).

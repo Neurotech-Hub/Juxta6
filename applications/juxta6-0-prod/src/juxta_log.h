@@ -54,8 +54,13 @@ int juxta_log_format(struct juxta_log_context *ctx);
  * main-loop feeds for the whole erase.  Implementations must be safe to call
  * from any workqueue thread and must not block. */
 void juxta_log_set_long_op_tick(void (*tick)(void));
+/* Append a JXS event with empty latitude/longitude columns. */
 int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_settings *settings,
 						   const char *device_id, const char *event, uint32_t unix_time);
+/* Same as append_event, but write this-event coords when loc_valid (time_set). */
+int juxta_log_append_event_loc(struct juxta_log_context *ctx, const struct juxta_settings *settings,
+			       const char *device_id, const char *event, uint32_t unix_time,
+			       bool loc_valid, float latitude, float longitude);
 int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, uint16_t motion,
 							int32_t batt_mv, int8_t temp_c);
 /* v6: no observer column (constant per device, in the filename); the JX_

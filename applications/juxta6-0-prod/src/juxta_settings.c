@@ -27,6 +27,9 @@ void juxta_settings_defaults(struct juxta_settings *settings, const char *device
 	settings->vitals_interval_s = JUXTA_DEFAULT_VITALS_INTERVAL_S;
 	settings->inactivity_multiplier = JUXTA_DEFAULT_INACTIVITY_MULTIPLIER;
 	settings->motion_logging = 1U;
+	settings->location_valid = 0U;
+	settings->latitude = 0.0f;
+	settings->longitude = 0.0f;
 }
 
 /*
@@ -56,18 +59,37 @@ static void settings_sanitize(struct juxta_settings *s)
 	if (s->inactivity_multiplier > JUXTA_MAX_INACTIVITY_MULTIPLIER) {
 		s->inactivity_multiplier = JUXTA_MAX_INACTIVITY_MULTIPLIER;
 	}
+	if (s->location_valid != 0U) {
+		s->location_valid = 1U;
+		if (s->latitude > 90.0f) {
+			s->latitude = 90.0f;
+		} else if (s->latitude < -90.0f) {
+			s->latitude = -90.0f;
+		}
+		if (s->longitude > 180.0f) {
+			s->longitude = 180.0f;
+		} else if (s->longitude < -180.0f) {
+			s->longitude = -180.0f;
+		}
+	} else {
+		s->location_valid = 0U;
+		s->latitude = 0.0f;
+		s->longitude = 0.0f;
+	}
 }
 
 static int settings_set_handler(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg)
 {
 	if (strcmp(name, "current") == 0) {
-		if (len != sizeof(current)) {
+		/* Pre-v7 blobs omit location_*; accept shorter reads and keep defaults
+		 * for the new trailing fields (already set by juxta_settings_defaults). */
+		if (len > sizeof(current)) {
 			return -EINVAL;
 		}
 
-		ssize_t n = read_cb(cb_arg, &current, sizeof(current));
+		ssize_t n = read_cb(cb_arg, &current, len);
 
-		return (n == (ssize_t)sizeof(current)) ? 0 : -EINVAL;
+		return (n == (ssize_t)len) ? 0 : -EINVAL;
 	}
 
 	if (strcmp(name, "log_cache") == 0) {

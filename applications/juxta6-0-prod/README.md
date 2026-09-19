@@ -4,9 +4,10 @@ Juxta-style firmware for nRF54L15 Tag: shelf / magnet / **Hublink GATT sync** /
 dual-antenna advertising RSSI / live ADXL+VDD vitals / **MX25L3233 NOR CSV**.
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
-SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v6`** (JXV/JXB rows use
-day-relative seconds; JXB drops the observer column and the `JX_` peer prefix.
-Devices upgrading from v5 need a `clearMemory`/format). Layout:
+SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v7`** (JXV/JXB rows use
+day-relative seconds; JXB drops the observer column and the `JX_` peer prefix;
+JXS adds `latitude,longitude` from the last gateway sync. Devices upgrading
+need a `clearMemory`/format). Layout:
 
 | Region | Start | Size |
 |--------|-------|------|
@@ -76,8 +77,9 @@ adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 2. Hold **BTN1** 3–10 s → slow green blink, connectable Hublink advertising
    (`JX_XXXXXX` via `bt_set_name` + scan response; Hublink UUID in ADV).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.1.0`, `memoryLevel` from NOR fill, refreshed at vitals cadence); write
-   **Gateway** JSON with `"timestamp": <unix>` (and optional settings).
+   `6.2.0`, `memoryLevel` from NOR fill, refreshed at vitals cadence); write
+   **Gateway** JSON with `"timestamp": <unix>` plus optional `latitude` /
+   `longitude` / `tempC` (and optional settings).
 4. Disconnect → 5× blink → production (LED off).
 5. During production, hold **BTN1** ≥3 s to shelf: **red+blue** while holding,
    LEDs off at 3 s (commit) → **5× green blink** → **1 s** release debounce →
@@ -85,7 +87,7 @@ adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 6. RTT shows `JXB` / `JXV`; companion **LIST** / pull dated `JX{S|V|B}YYYYMMDD.csv`.
 7. Gateway `clearMemory` erases CSV regions (deferred workqueue) then empty LIST.
 
-iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.x` / schema v6).
+iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.x` / schema v7).
 
 ## RTT line shapes
 
@@ -99,4 +101,4 @@ JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c>
 
 - M3: MCUboot / SMP DFU (wire DFU — port from Juxta 5.8)
 - M4: Encounter Manager + optional CS
-- Temperature: retain BME688, or sync temp from iPhone to calibrate ADXL/IMU (~10 °C skew between devices today)
+- Temperature: BME688 optional; gateway `tempC` already soft-calibrates ADXL die temp

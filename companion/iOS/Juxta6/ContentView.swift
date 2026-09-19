@@ -8,6 +8,7 @@
 import SwiftUI
 import UIKit
 import CoreBluetooth
+import CoreLocation
 import UniformTypeIdentifiers
 import Charts
 
@@ -18,6 +19,94 @@ struct HublinkUUIDs {
     static let fileTransfer = CBUUID(string: "57617368-5503-0001-8000-00805f9b34fb")
     static let gateway = CBUUID(string: "57617368-5504-0001-8000-00805f9b34fb")
     static let node = CBUUID(string: "57617368-5505-0001-8000-00805f9b34fb")
+}
+
+// MARK: - Gateway location + Open-Meteo ambient °C
+final class GatewayLocationHelper: NSObject, CLLocationManagerDelegate {
+    static let shared = GatewayLocationHelper()
+
+    private let manager = CLLocationManager()
+    private var locationContinuation: CheckedContinuation<CLLocation?, Never>?
+    private var locationTimeoutWork: DispatchWorkItem?
+
+    private override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    }
+
+    /// Best-effort single fix; returns nil on deny, error, or timeout.
+    func requestLocation(timeoutSeconds: TimeInterval = 5) async -> CLLocation? {
+        let status = manager.authorizationStatus
+        if status == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+            // Brief wait for the permission sheet; then proceed with whatever status we have.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+        let after = manager.authorizationStatus
+        guard after == .authorizedWhenInUse || after == .authorizedAlways else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            if locationContinuation != nil {
+                continuation.resume(returning: nil)
+                return
+            }
+            locationContinuation = continuation
+            let work = DispatchWorkItem { [weak self] in
+                self?.finishLocation(nil)
+            }
+            locationTimeoutWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds, execute: work)
+            manager.requestLocation()
+        }
+    }
+
+    private func finishLocation(_ location: CLLocation?) {
+        locationTimeoutWork?.cancel()
+        locationTimeoutWork = nil
+        guard let cont = locationContinuation else { return }
+        locationContinuation = nil
+        cont.resume(returning: location)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        finishLocation(locations.last)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        finishLocation(nil)
+    }
+
+    static func fetchOpenMeteoTempC(latitude: Double, longitude: Double,
+                                    timeoutSeconds: TimeInterval = 5) async -> Double? {
+        var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
+        components?.queryItems = [
+            URLQueryItem(name: "latitude", value: String(latitude)),
+            URLQueryItem(name: "longitude", value: String(longitude)),
+            URLQueryItem(name: "current", value: "temperature_2m"),
+        ]
+        guard let url = components?.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeoutSeconds
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return nil
+            }
+            guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let current = root["current"] as? [String: Any] else {
+                return nil
+            }
+            if let n = current["temperature_2m"] as? Double { return n }
+            if let n = current["temperature_2m"] as? NSNumber { return n.doubleValue }
+            return nil
+        } catch {
+            return nil
+        }
+    }
 }
 
 // MARK: - Device Info
@@ -247,6 +336,8 @@ class AppState: ObservableObject {
     @Published var showDefaultSettingsAlert = false
     @Published var showIncompatibleFirmwareAlert = false
     @Published var currentTime = ""
+    /// Small subtitle under the clock: last gateway lat/lon + ambient °C/°F.
+    @Published var gatewayContextLine = "Location unavailable"
     @Published var batteryLevel: Int? = nil
     @Published var transferredDateKeys: Set<String> = []
     @Published var pushFeedback: String = ""
@@ -399,6 +490,7 @@ class AppState: ObservableObject {
     }
 
     func startClock() {
+        loadGatewayContextFromDefaults()
         updateTime()
         clockTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             self.updateTime()
@@ -426,6 +518,60 @@ class AppState: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "dd MMM yy • HH:mm:ss"
         currentTime = formatter.string(from: Date())
+    }
+
+    private static let udLatKey = "gateway.lastLatitude"
+    private static let udLonKey = "gateway.lastLongitude"
+    private static let udTempKey = "gateway.lastTempC"
+    private static let udHasLocKey = "gateway.hasLocation"
+    private static let udHasTempKey = "gateway.hasTemp"
+
+    func loadGatewayContextFromDefaults() {
+        let ud = UserDefaults.standard
+        let hasLoc = ud.bool(forKey: Self.udHasLocKey)
+        let hasTemp = ud.bool(forKey: Self.udHasTempKey)
+        let lat = ud.double(forKey: Self.udLatKey)
+        let lon = ud.double(forKey: Self.udLonKey)
+        let tempC = ud.double(forKey: Self.udTempKey)
+        gatewayContextLine = Self.formatGatewayContext(
+            lat: hasLoc ? lat : nil,
+            lon: hasLoc ? lon : nil,
+            tempC: hasTemp ? tempC : nil
+        )
+    }
+
+    func updateGatewayContext(lat: Double?, lon: Double?, tempC: Double?) {
+        let ud = UserDefaults.standard
+        if let lat, let lon {
+            ud.set(lat, forKey: Self.udLatKey)
+            ud.set(lon, forKey: Self.udLonKey)
+            ud.set(true, forKey: Self.udHasLocKey)
+        }
+        if let tempC {
+            ud.set(tempC, forKey: Self.udTempKey)
+            ud.set(true, forKey: Self.udHasTempKey)
+        }
+        let hasLoc = ud.bool(forKey: Self.udHasLocKey)
+        let hasTemp = ud.bool(forKey: Self.udHasTempKey)
+        gatewayContextLine = Self.formatGatewayContext(
+            lat: hasLoc ? ud.double(forKey: Self.udLatKey) : lat,
+            lon: hasLoc ? ud.double(forKey: Self.udLonKey) : lon,
+            tempC: hasTemp ? ud.double(forKey: Self.udTempKey) : tempC
+        )
+    }
+
+    static func formatGatewayContext(lat: Double?, lon: Double?, tempC: Double?) -> String {
+        var parts: [String] = []
+        if let lat, let lon {
+            parts.append(String(format: "%.4f, %.4f", lat, lon))
+        } else {
+            parts.append("Location unavailable")
+        }
+        if let tempC {
+            let tempF = tempC * 9.0 / 5.0 + 32.0
+            parts.append(String(format: "%.0f°C / %.0f°F", tempC, tempF))
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -526,11 +672,52 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     private func sendTimestampAndFilenamesRequest() {
-        let timestamp = Int(Date().timeIntervalSince1970)
-        writeGatewayJSONObject([
-            "timestamp": timestamp,
-            "sendFilenames": true
-        ])
+        Task {
+            await self.sendTimestampAndFilenamesRequestAsync()
+        }
+    }
+
+    private func sendTimestampAndFilenamesRequestAsync() async {
+        var payload: [String: Any] = [
+            "timestamp": Int(Date().timeIntervalSince1970),
+            "sendFilenames": true,
+        ]
+
+        let lat: Double?
+        let lon: Double?
+        let tempC: Double?
+
+        if let location = await GatewayLocationHelper.shared.requestLocation(timeoutSeconds: 5) {
+            let resolvedLat = location.coordinate.latitude
+            let resolvedLon = location.coordinate.longitude
+            payload["latitude"] = resolvedLat
+            payload["longitude"] = resolvedLon
+            if let t = await GatewayLocationHelper.fetchOpenMeteoTempC(
+                latitude: resolvedLat, longitude: resolvedLon, timeoutSeconds: 5
+            ) {
+                payload["tempC"] = t
+                lat = resolvedLat
+                lon = resolvedLon
+                tempC = t
+            } else {
+                lat = resolvedLat
+                lon = resolvedLon
+                tempC = nil
+            }
+        } else {
+            lat = nil
+            lon = nil
+            tempC = nil
+        }
+
+        let gatewayPayload = payload
+        let contextLat = lat
+        let contextLon = lon
+        let contextTempC = tempC
+        await MainActor.run {
+            self.appState.updateGatewayContext(lat: contextLat, lon: contextLon, tempC: contextTempC)
+            self.writeGatewayJSONObject(gatewayPayload)
+        }
     }
 
     func clearMemory() {
@@ -1378,25 +1565,32 @@ struct ContentView: View {
     
     // MARK: - Clock View
     private var clockView: some View {
-        HStack {
+        HStack(alignment: .center) {
             Spacer()
-            HStack(spacing: 0) {
-                let components = appState.currentTime.components(separatedBy: " • ")
-                if components.count == 2 {
-                    Text(components[0])
-                        .font(.system(size: 16, weight: .regular, design: .monospaced))
-                        .foregroundColor(.primary)
-                    Text(" • ")
-                        .font(.system(size: 16, weight: .regular, design: .monospaced))
-                        .foregroundColor(.primary)
-                    Text(components[1])
-                        .font(.system(size: 16, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.primary)
-                } else {
-                    Text(appState.currentTime)
-                        .font(.system(size: 16, weight: .regular, design: .monospaced))
-                        .foregroundColor(.primary)
+            VStack(spacing: 2) {
+                HStack(spacing: 0) {
+                    let components = appState.currentTime.components(separatedBy: " • ")
+                    if components.count == 2 {
+                        Text(components[0])
+                            .font(.system(size: 16, weight: .regular, design: .monospaced))
+                            .foregroundColor(.primary)
+                        Text(" • ")
+                            .font(.system(size: 16, weight: .regular, design: .monospaced))
+                            .foregroundColor(.primary)
+                        Text(components[1])
+                            .font(.system(size: 16, weight: .heavy, design: .monospaced))
+                            .foregroundColor(.primary)
+                    } else {
+                        Text(appState.currentTime)
+                            .font(.system(size: 16, weight: .regular, design: .monospaced))
+                            .foregroundColor(.primary)
+                    }
                 }
+                Text(appState.gatewayContextLine)
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             Spacer()
             

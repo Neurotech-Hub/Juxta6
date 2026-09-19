@@ -32,10 +32,37 @@ static bool have_last;
 static uint32_t motion_count;
 static float last_temp_c;
 static bool temp_valid;
+static float temp_offset_c;
+static bool temp_offset_valid;
+static float pending_ambient_c;
+static bool pending_ambient;
 static float cur_x;
 static float cur_y;
 static float cur_z;
 static bool ready;
+
+static void apply_pending_ambient_locked(void)
+{
+	float ambient;
+
+	if (!pending_ambient || !temp_valid) {
+		return;
+	}
+	ambient = pending_ambient_c;
+	temp_offset_c = ambient - last_temp_c;
+	temp_offset_valid = true;
+	pending_ambient = false;
+	LOG_INF("ADXL temp offset=%.2f C (ambient=%.2f die=%.2f)", (double)temp_offset_c,
+		(double)ambient, (double)last_temp_c);
+}
+
+static float calibrated_temp_locked(void)
+{
+	if (!temp_valid) {
+		return last_temp_c;
+	}
+	return temp_offset_valid ? (last_temp_c + temp_offset_c) : last_temp_c;
+}
 
 static void suspend_unused(const struct device *dev, const char *name)
 {
@@ -116,6 +143,7 @@ static void poll_handler(struct k_work *work)
 		(void)k_mutex_lock(&lock, K_FOREVER);
 		last_temp_c = sensor_value_to_float(&temp);
 		temp_valid = true;
+		apply_pending_ambient_locked();
 		(void)k_mutex_unlock(&lock);
 	}
 
@@ -166,6 +194,24 @@ void juxta_motion_stop(void)
 	(void)k_work_cancel_delayable_sync(&poll_work, &sync);
 }
 
+void juxta_motion_set_temp_offset_c(float ambient_c)
+{
+	(void)k_mutex_lock(&lock, K_FOREVER);
+	if (temp_valid) {
+		temp_offset_c = ambient_c - last_temp_c;
+		temp_offset_valid = true;
+		pending_ambient = false;
+		LOG_INF("ADXL temp offset=%.2f C (ambient=%.2f die=%.2f)", (double)temp_offset_c,
+			(double)ambient_c, (double)last_temp_c);
+	} else {
+		pending_ambient_c = ambient_c;
+		pending_ambient = true;
+		LOG_INF("ADXL temp offset pending ambient=%.2f C (die not ready)",
+			(double)ambient_c);
+	}
+	(void)k_mutex_unlock(&lock);
+}
+
 void juxta_motion_peek(struct juxta_motion_sample *out)
 {
 	if (out == NULL) {
@@ -174,7 +220,7 @@ void juxta_motion_peek(struct juxta_motion_sample *out)
 
 	(void)k_mutex_lock(&lock, K_FOREVER);
 	out->motion_count = motion_count;
-	out->temp_c = last_temp_c;
+	out->temp_c = calibrated_temp_locked();
 	out->temp_valid = temp_valid;
 	out->x = cur_x;
 	out->y = cur_y;
@@ -190,7 +236,7 @@ void juxta_motion_take(struct juxta_motion_sample *out)
 
 	(void)k_mutex_lock(&lock, K_FOREVER);
 	out->motion_count = motion_count;
-	out->temp_c = last_temp_c;
+	out->temp_c = calibrated_temp_locked();
 	out->temp_valid = temp_valid;
 	out->x = cur_x;
 	out->y = cur_y;

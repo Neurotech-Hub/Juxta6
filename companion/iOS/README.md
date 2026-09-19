@@ -1,6 +1,6 @@
 # Juxta6 (iOS companion)
 
-iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.1.0**, schema **`jxta-nor-csv-v6`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
+iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.2.0**, schema **`jxta-nor-csv-v7`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
 
 Open **`Juxta6.xcodeproj`**, scheme **Juxta6**, on a physical iPhone (BLE is not available in the Simulator).
 
@@ -13,12 +13,14 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 - iOS 17.0+
 - Xcode 15.0+
 - Physical Bluetooth-enabled iPhone
-- Tag running Juxta6 firmware **6.x** (current: `6.1.0`)
+- Tag running Juxta6 firmware **6.x** (current: `6.2.0`)
+- Location When In Use (optional) — used once per sync for gateway lat/lon + Open-Meteo ambient °C
 
 ## Features
 
 - **BLE scan & connect** — Hublink service UUID; peripherals advertise as `JX_*`
 - **Firmware gate** — Node `firmwareVersion` must start with `6.`; otherwise disconnect
+- **Time sync + context** — Gateway write includes UTC `timestamp`, optional lat/lon, and optional Open-Meteo `tempC`; clock subtitle shows last fix + °C/°F
 - **Device settings** — subject, experiment, adv/scan interval (0 = off, else 1–120 s), inactivity multiplier (1–10), motion logging
 - **Daily packages** — transfer `JXV` / `JXS` / `JXB` + `YYYYMMDD` into `Documents/<device_id>/`
 - **Packages / plots / terminal / info** tabs
@@ -26,11 +28,11 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 ## Usage
 
 1. Device tab → **Scan** → **Connect**.
-2. App reads Node JSON, then writes Gateway `{"timestamp": <UTC epoch>, "sendFilenames": true}`.
+2. App reads Node JSON, then writes Gateway `{"timestamp": <UTC epoch>, "sendFilenames": true}` plus optional `latitude` / `longitude` / `tempC`.
 3. Select a day package → **Transfer Selected**.
 4. Browse offline under **Packages**; plot vitals / BLE activity; **Shelf Mode** / **Clear Memory** as needed.
 
-## CSV formats (schema v6)
+## CSV formats (schema v7)
 
 Filenames use the UTC calendar day (`JX{S|V|B}YYYYMMDD.csv`). Row times in JXV/JXB are **day-relative seconds** (`sec` = unix % 86400 UTC). Reconstruct absolute UTC as midnight of the filename date + `sec`.
 
@@ -43,7 +45,7 @@ sec,motion,batt_v,temp_c
 
 ### Settings — `JXS<YYYYMMDD>.csv`
 
-Absolute `unix` event rows (including `day_start`). Preview / View All only.
+Absolute `unix` event rows (including `day_start`) with trailing `latitude,longitude` (filled on `time_set` / `day_start`; blank otherwise). Preview / View All only.
 
 ### BLE Activity — `JXB<YYYYMMDD>.csv`
 
@@ -62,7 +64,7 @@ See [`spec_HUBLINK.md`](spec_HUBLINK.md). UUIDs match `juxta6-0-prod`.
 
 ```json
 {
-  "firmwareVersion": "6.1.0",
+  "firmwareVersion": "6.2.0",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
@@ -77,7 +79,7 @@ See [`spec_HUBLINK.md`](spec_HUBLINK.md). UUIDs match `juxta6-0-prod`.
 
 ### Gateway (WRITE)
 
-UTC `timestamp`, `sendFilenames`, settings fields, `clearMemory`, `reset` (shelf). Intervals clamped to 0 or 1–120.
+UTC `timestamp`, `sendFilenames`, optional `latitude` / `longitude` / `tempC`, settings fields, `clearMemory`, `reset` (shelf). Intervals clamped to 0 or 1–120.
 
 ## Development
 

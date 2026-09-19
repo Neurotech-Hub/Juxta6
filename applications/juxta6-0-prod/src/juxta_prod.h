@@ -4,14 +4,13 @@
 #include <stdint.h>
 
 #define JUXTA_PRODUCT_NAME "Juxta6-0"
-#define JUXTA_FIRMWARE_VERSION "6.1.0"
-/* v6 row compaction: JXB drops the observer column (constant per device,
- * already in the filename) and the constant JX_ peer prefix; JXB/JXV use
- * day-relative seconds (date lives in the filename). JXS rows keep absolute
- * unix. Companion/Hublink parsers update in lockstep; deployed devices need
- * a clearMemory/format when upgrading (see release notes). */
-#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v6"
-#define JUXTA_LOGGING_VERSION 6
+#define JUXTA_FIRMWARE_VERSION "6.2.0"
+/* v7: JXS gains latitude,longitude (gateway last-known / time_set). v6 kept
+ * JXB/JXV day-relative sec and dropped observer/JX_ peer prefix. Companion
+ * parsers update in lockstep; deployed devices need a clearMemory/format when
+ * upgrading (see release notes). */
+#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v7"
+#define JUXTA_LOGGING_VERSION 7
 
 #define JUXTA_DEVICE_ID_LEN 10
 #define JUXTA_SUBJECT_ID_LEN 32

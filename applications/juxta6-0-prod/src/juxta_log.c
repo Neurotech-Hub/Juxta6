@@ -46,12 +46,12 @@ struct log_region
 
 static const struct log_region regions[] = {
 	{JUXTA_LOG_JXS, "JXS",
-	 "unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name\n",
+	 "unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude\n",
 	 JXS_START, JXS_SIZE},
 	/* v6: JXV/JXB rows use day-relative seconds ("sec" = unix % 86400, UTC;
 	 * the calendar date is in the filename).  JXB also drops the observer
 	 * column (constant per device, in the filename) and the constant JX_
-	 * prefix on peer IDs.  JXS keeps absolute unix. */
+	 * prefix on peer IDs.  JXS keeps absolute unix. v7 adds lat/lon on JXS. */
 	{JUXTA_LOG_JXV, "JXV", "sec,motion,batt_v,temp_c\n", JXV_START, JXV_SIZE},
 	{JUXTA_LOG_JXB, "JXB", "sec,peer_id,rssi\n", JXB_START, JXB_SIZE},
 };
@@ -661,13 +661,27 @@ static int append_jxs_day_start_row(struct juxta_log_context *ctx,
 		return 0;
 	}
 
-	len = snprintf(row, sizeof(row), "%u,day_start,%s,%s,%s,%s,%u,%u,%u,%s\n",
+	len = snprintf(row, sizeof(row), "%u,day_start,%s,%s,%s,%s,%u,%u,%u,%s,",
 		       unix_time, s_device_id, settings->subject_id, settings->experiment,
 		       JUXTA_FIRMWARE_VERSION, settings->scan_interval_s,
 		       settings->adv_interval_s, settings->vitals_interval_s, s_device_id);
 	if (len < 0 || len >= (int)sizeof(row))
 	{
 		return -ENOSPC;
+	}
+	if (settings->location_valid != 0U) {
+		int n = snprintf(row + len, sizeof(row) - (size_t)len, "%.6f,%.6f\n",
+				 (double)settings->latitude, (double)settings->longitude);
+		if (n < 0 || (size_t)n >= sizeof(row) - (size_t)len) {
+			return -ENOSPC;
+		}
+		len += n;
+	} else {
+		int n = snprintf(row + len, sizeof(row) - (size_t)len, ",\n");
+		if (n < 0 || (size_t)n >= sizeof(row) - (size_t)len) {
+			return -ENOSPC;
+		}
+		len += n;
 	}
 
 	rc = guarded_flash_append(ctx, region, region_idx,
@@ -1197,6 +1211,14 @@ int juxta_log_format(struct juxta_log_context *ctx)
 int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_settings *settings,
 						   const char *device_id, const char *event, uint32_t unix_time)
 {
+	return juxta_log_append_event_loc(ctx, settings, device_id, event, unix_time, false, 0.0f,
+					  0.0f);
+}
+
+int juxta_log_append_event_loc(struct juxta_log_context *ctx, const struct juxta_settings *settings,
+			       const char *device_id, const char *event, uint32_t unix_time,
+			       bool loc_valid, float latitude, float longitude)
+{
 	static char row[256];
 	int rc;
 
@@ -1219,14 +1241,30 @@ int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_set
 		goto out;
 	}
 
-	int len = snprintf(row, sizeof(row), "%u,%s,%s,%s,%s,%s,%u,%u,%u,%s\n", unix_time,
-					   event, device_id, settings->subject_id, settings->experiment,
-					   JUXTA_FIRMWARE_VERSION, settings->scan_interval_s,
-					   settings->adv_interval_s, settings->vitals_interval_s, device_id);
+	int len = snprintf(row, sizeof(row), "%u,%s,%s,%s,%s,%s,%u,%u,%u,%s,", unix_time, event,
+			   device_id, settings->subject_id, settings->experiment,
+			   JUXTA_FIRMWARE_VERSION, settings->scan_interval_s,
+			   settings->adv_interval_s, settings->vitals_interval_s, device_id);
 	if (len < 0 || len >= (int)sizeof(row))
 	{
 		rc = -ENOSPC;
 		goto out;
+	}
+	if (loc_valid) {
+		int n = snprintf(row + len, sizeof(row) - (size_t)len, "%.6f,%.6f\n",
+				 (double)latitude, (double)longitude);
+		if (n < 0 || (size_t)n >= sizeof(row) - (size_t)len) {
+			rc = -ENOSPC;
+			goto out;
+		}
+		len += n;
+	} else {
+		int n = snprintf(row + len, sizeof(row) - (size_t)len, ",\n");
+		if (n < 0 || (size_t)n >= sizeof(row) - (size_t)len) {
+			rc = -ENOSPC;
+			goto out;
+		}
+		len += n;
 	}
 
 	LOG_INF("JXS[%u] %s", unix_time, event);

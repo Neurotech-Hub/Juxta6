@@ -78,7 +78,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 
 | ID  | App / topic            | Intent                                                                   |
 | --- | ---------------------- | ------------------------------------------------------------------------ |
-| —   | `juxta6-0-prod` M2     | NOR CSV + Filename/File Transfer live (`6.1.0`, schema v6, MX25L3233 4 MiB). See app README. Validate companion LIST/pull + clearMemory. |
+| —   | `juxta6-0-prod` M2     | NOR CSV + Filename/File Transfer live (`6.2.0`, schema v7, MX25L3233 4 MiB). See app README. Validate companion LIST/pull + clearMemory. |
 | —   | Encounter Manager      | Qualify / arbitrate / cooldown / budget (opportunistic, not a scheduler) |
 | —   | 3-tag HIL              | Multi-peer encounter manager behavior                                    |
 | —   | Anchor profile         | Same CS layer; policy-only difference                                    |

@@ -8,14 +8,22 @@ function renderEventsTable(jxs, tz) {
   }
   const abbr = TZ_ABBR[tz];
 
-  const rowsHtml = jxs.map((r) => `
+  const rowsHtml = jxs.map((r) => {
+    const lat = r.latitude !== undefined && r.latitude !== "" && r.latitude != null
+      ? Number(r.latitude).toFixed(4) : "";
+    const lon = r.longitude !== undefined && r.longitude !== "" && r.longitude != null
+      ? Number(r.longitude).toFixed(4) : "";
+    const loc = lat && lon ? `${lat}, ${lon}` : "";
+    return `
     <tr>
       <td>${formatUnix(r.unix, tz)}</td>
       <td>${r.event || ""}</td>
       <td>${r.device_id || ""}</td>
       <td>${r.fw_version || ""}</td>
       <td>${r.scan_interval_s || ""} / ${r.adv_interval_s || ""} / ${r.vitals_interval_s || ""}</td>
-    </tr>`).join("");
+      <td>${loc}</td>
+    </tr>`;
+  }).join("");
 
   container.innerHTML = `
     <table class="events">
@@ -26,6 +34,7 @@ function renderEventsTable(jxs, tz) {
           <th>Device</th>
           <th>FW</th>
           <th>Intervals (scan/adv/vitals, s)</th>
+          <th>Lat, Lon</th>
         </tr>
       </thead>
       <tbody>${rowsHtml}</tbody>

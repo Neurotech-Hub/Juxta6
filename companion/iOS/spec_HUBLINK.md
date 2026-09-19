@@ -2,7 +2,7 @@
 
 Contract between the **Juxta6** iOS companion and **juxta6-0-prod** Tags. Service UUID: `57617368-5501-0001-8000-00805f9b34fb`. Advertising name: `JX_*` (last 6 hex of public address) = `deviceId`.
 
-Firmware reference: `applications/juxta6-0-prod` (current ship **6.1.0**, log schema **`jxta-nor-csv-v6`**).
+Firmware reference: `applications/juxta6-0-prod` (current ship **6.2.0**, log schema **`jxta-nor-csv-v7`**).
 
 ## Characteristics
 
@@ -12,7 +12,7 @@ CamelCase JSON status + settings:
 
 ```json
 {
-  "firmwareVersion": "6.1.0",
+  "firmwareVersion": "6.2.0",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
@@ -41,6 +41,9 @@ Unknown keys may be ignored.
 {
   "timestamp": 1717003200,
   "sendFilenames": true,
+  "latitude": 38.6270,
+  "longitude": -90.1994,
+  "tempC": 25.0,
   "subjectId": "001",
   "experiment": "trial-A",
   "advInterval": 5,
@@ -56,6 +59,8 @@ Unknown keys may be ignored.
 | --- | --- |
 | `timestamp` | Unix **UTC** epoch seconds (required for logging clock) |
 | `sendFilenames` | Request file listing via Filename indications |
+| `latitude` / `longitude` | WGS84 degrees from the gateway phone; omit if unavailable. When both present, Tag stores last-known in NVS and writes them on the `time_set` JXS row |
+| `tempC` | Ambient °C (e.g. Open-Meteo); omit if unavailable. Tag applies a RAM-only ADXL die-temp soft offset; not persisted / not logged to JXS |
 | `clearMemory` | Erase NOR CSV regions |
 | `reset` | Disconnect and enter shelf (System OFF) |
 | settings keys | Persisted to NVS; `experiment` may be omitted when empty |
@@ -74,7 +79,7 @@ Unknown keys may be ignored.
 1. Connect (service UUID filter).
 2. Read Node; reject if `firmwareVersion` does not start with `6.`.
 3. Subscribe to Filename + File Transfer indications.
-4. Gateway write: `{"timestamp": <UTC>, "sendFilenames": true}`.
+4. Gateway write: `{"timestamp": <UTC>, "sendFilenames": true}` plus optional `latitude` / `longitude` / `tempC` from the phone.
 5. Further Gateway settings writes as needed.
 6. LIST → write filename → stream File Transfer until `EOF`.
 
@@ -89,12 +94,18 @@ Documents/<device_id>/
   JXB<YYYYMMDD>.csv
 ```
 
-### Schema v6 columns
+### Schema v7 columns
 
 | File | Header |
 | --- | --- |
 | JXV | `sec,motion,batt_v,temp_c` |
 | JXB | `sec,peer_id,rssi` |
-| JXS | absolute `unix` event CSV (includes `day_start`) |
+| JXS | `unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude` |
+
+JXS lat/lon fill rules:
+
+- `time_set`: coords from **this** Gateway write only (empty if omitted).
+- `day_start`: last-known NVS coords (empty until first successful fix).
+- Other events: empty lat/lon fields.
 
 `sec` is day-relative UTC seconds (`unix % 86400`). Absolute time = UTC midnight of `YYYYMMDD` + `sec`. JXB `peer_id` has no `JX_` prefix.

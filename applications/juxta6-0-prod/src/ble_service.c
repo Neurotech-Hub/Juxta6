@@ -21,6 +21,7 @@
 #include "juxta_settings.h"
 #include "juxta_time.h"
 #include "juxta_vdd.h"
+#include "juxta_motion.h"
 
 LOG_MODULE_REGISTER(juxta_ble_service, LOG_LEVEL_INF);
 
@@ -166,6 +167,41 @@ static int extract_u32(const char *json, const char *key, uint32_t *value)
 	}
 
 	if (sscanf(p + strlen(pattern), "%u", value) != 1)
+	{
+		return -EINVAL;
+	}
+	return 0;
+}
+
+/* Parse a JSON number (int or float). Rejects missing keys and JSON null. */
+static int extract_f64(const char *json, const char *key, double *value)
+{
+	char pattern[40];
+	const char *p;
+
+	if (!json || !key || !value)
+	{
+		return -EINVAL;
+	}
+
+	(void)snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+	p = strstr(json, pattern);
+	if (!p)
+	{
+		return -ENOENT;
+	}
+
+	p += strlen(pattern);
+	while (*p == ' ' || *p == '\t')
+	{
+		p++;
+	}
+	if (strncmp(p, "null", 4) == 0)
+	{
+		return -EINVAL;
+	}
+
+	if (sscanf(p, "%lf", value) != 1)
 	{
 		return -EINVAL;
 	}
@@ -504,8 +540,37 @@ static int apply_gateway_command(const char *json)
 	char device_id[JUXTA_DEVICE_ID_LEN];
 	uint32_t value;
 	bool changed = false;
+	bool this_loc_valid = false;
+	float this_lat = 0.0f;
+	float this_lon = 0.0f;
+	double dval;
 
 	(void)juxta_ble_get_device_id(device_id);
+
+	{
+		double lat_d;
+		double lon_d;
+
+		if (extract_f64(json, "latitude", &lat_d) == 0 &&
+		    extract_f64(json, "longitude", &lon_d) == 0 && lat_d >= -90.0 &&
+		    lat_d <= 90.0 && lon_d >= -180.0 && lon_d <= 180.0)
+		{
+			this_loc_valid = true;
+			this_lat = (float)lat_d;
+			this_lon = (float)lon_d;
+			next.latitude = this_lat;
+			next.longitude = this_lon;
+			next.location_valid = 1U;
+			changed = true;
+			LOG_INF("gateway location lat=%.6f lon=%.6f", lat_d, lon_d);
+		}
+	}
+
+	if (extract_f64(json, "tempC", &dval) == 0)
+	{
+		juxta_motion_set_temp_offset_c((float)dval);
+		LOG_INF("gateway tempC=%.2f", dval);
+	}
 
 	if (extract_u32(json, "timestamp", &value) == 0 && value == 0U)
 	{
@@ -524,7 +589,8 @@ static int apply_gateway_command(const char *json)
 		 * (shelf_exit, user_connected) that arrived before the clock was set.
 		 * Then append the time_set row so the JXS reads chronologically. */
 		juxta_ble_datetime_synchronized();
-		(void)juxta_log_append_event(log_ctx, &next, device_id, "time_set", value);
+		(void)juxta_log_append_event_loc(log_ctx, &next, device_id, "time_set", value,
+						 this_loc_valid, this_lat, this_lon);
 	}
 
 	if (extract_bool_true(json, "sendFilenames"))
@@ -629,10 +695,11 @@ static int apply_gateway_command(const char *json)
 		const struct juxta_settings *a = juxta_settings_get();
 
 		LOG_INF("gateway settings saved: scan=%u adv=%u vitals=%u inactivity_multiplier=%u "
-				"motion_logging=%u subject=\"%s\" experiment=\"%s\"",
+				"motion_logging=%u subject=\"%s\" experiment=\"%s\" loc_valid=%u",
 				a->scan_interval_s, a->adv_interval_s, a->vitals_interval_s,
 				(unsigned int)a->inactivity_multiplier,
-				(unsigned int)a->motion_logging, a->subject_id, a->experiment);
+				(unsigned int)a->motion_logging, a->subject_id, a->experiment,
+				(unsigned int)a->location_valid);
 		if (production_ready)
 		{
 			(void)juxta_log_append_event(log_ctx, a, device_id, "settings_changed",

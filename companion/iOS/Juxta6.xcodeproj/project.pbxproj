@@ -420,6 +420,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth is required for connecting to peripheral devices.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "Allow Bluetooth peripheral?";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location is used once per Tag sync to record where the gateway phone was and to fetch local ambient temperature for sensor calibration.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -454,6 +455,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Bluetooth is required for connecting to peripheral devices.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "Allow Bluetooth peripheral?";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location is used once per Tag sync to record where the gateway phone was and to fetch local ambient temperature for sensor calibration.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;

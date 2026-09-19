@@ -13,6 +13,10 @@ struct juxta_settings {
 	uint16_t vitals_interval_s;
 	uint8_t inactivity_multiplier;
 	uint8_t motion_logging;
+	/* Last gateway fix (WGS84). location_valid=0 → JXS day_start leaves coords blank. */
+	uint8_t location_valid;
+	float latitude;
+	float longitude;
 };
 
 struct juxta_log_cache_file {
