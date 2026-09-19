@@ -22,12 +22,29 @@ struct HublinkUUIDs {
 }
 
 // MARK: - Gateway location + Open-Meteo ambient °C
+/// Continuous location (~10 s) for the clock subtitle and Tag sync; ambient °C
+/// once per app session plus hourly refresh while the app stays open.
 final class GatewayLocationHelper: NSObject, CLLocationManagerDelegate {
     static let shared = GatewayLocationHelper()
 
+    static let locationIntervalSeconds: TimeInterval = 10
+    static let tempRefreshSeconds: TimeInterval = 3600
+
+    /// Called on the main queue whenever lat/lon and/or temp change.
+    var onContextUpdate: ((Double?, Double?, Double?) -> Void)?
+
     private let manager = CLLocationManager()
+    private var locationTimer: Timer?
+    private var tempTimer: Timer?
     private var locationContinuation: CheckedContinuation<CLLocation?, Never>?
     private var locationTimeoutWork: DispatchWorkItem?
+    private var authWaiters: [CheckedContinuation<CLAuthorizationStatus, Never>] = []
+    private var started = false
+    private var lastLatitude: Double?
+    private var lastLongitude: Double?
+    private var lastTempC: Double?
+    private var didFetchTempThisSession = false
+    private var inFlightLocation = false
 
     private override init() {
         super.init()
@@ -35,16 +52,140 @@ final class GatewayLocationHelper: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    /// Best-effort single fix; returns nil on deny, error, or timeout.
-    func requestLocation(timeoutSeconds: TimeInterval = 5) async -> CLLocation? {
+    /// Latest values for Tag handshake (may be nil until first fix / fetch).
+    var currentLatitude: Double? { lastLatitude }
+    var currentLongitude: Double? { lastLongitude }
+    var currentTempC: Double? { lastTempC }
+
+    func startMonitoring(seedLatitude: Double? = nil, seedLongitude: Double? = nil, seedTempC: Double? = nil) {
+        guard !started else { return }
+        started = true
+        if let seedLatitude, let seedLongitude {
+            lastLatitude = seedLatitude
+            lastLongitude = seedLongitude
+        }
+        if let seedTempC {
+            lastTempC = seedTempC
+        }
+        publish()
+        Task { @MainActor in
+            await self.ensureAuthorized()
+            self.scheduleLocationPolling()
+            self.scheduleHourlyTempRefresh()
+            // Kick immediately so the UI updates without waiting for the first tick.
+            await self.pollLocationOnce()
+        }
+    }
+
+    func stopMonitoring() {
+        started = false
+        locationTimer?.invalidate()
+        locationTimer = nil
+        tempTimer?.invalidate()
+        tempTimer = nil
+        locationTimeoutWork?.cancel()
+        locationTimeoutWork = nil
+        if let cont = locationContinuation {
+            locationContinuation = nil
+            cont.resume(returning: nil)
+        }
+    }
+
+    @MainActor
+    private func ensureAuthorized() async {
         let status = manager.authorizationStatus
         if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
-            // Brief wait for the permission sheet; then proceed with whatever status we have.
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    _ = await withCheckedContinuation { (cont: CheckedContinuation<CLAuthorizationStatus, Never>) in
+                        self.authWaiters.append(cont)
+                    }
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 60_000_000_000)
+                }
+                await group.next()
+                group.cancelAll()
+                // If the sleep won, resume any leftover waiters so we don't hang.
+                if !self.authWaiters.isEmpty {
+                    let waiters = self.authWaiters
+                    self.authWaiters.removeAll()
+                    for w in waiters {
+                        w.resume(returning: self.manager.authorizationStatus)
+                    }
+                }
+            }
         }
-        let after = manager.authorizationStatus
-        guard after == .authorizedWhenInUse || after == .authorizedAlways else {
+    }
+
+    private func scheduleLocationPolling() {
+        locationTimer?.invalidate()
+        locationTimer = Timer.scheduledTimer(withTimeInterval: Self.locationIntervalSeconds, repeats: true) { [weak self] _ in
+            Task { await self?.pollLocationOnce() }
+        }
+        if let locationTimer {
+            RunLoop.main.add(locationTimer, forMode: .common)
+        }
+    }
+
+    private func scheduleHourlyTempRefresh() {
+        tempTimer?.invalidate()
+        tempTimer = Timer.scheduledTimer(withTimeInterval: Self.tempRefreshSeconds, repeats: true) { [weak self] _ in
+            Task { await self?.refreshTempIfPossible(force: true) }
+        }
+        if let tempTimer {
+            RunLoop.main.add(tempTimer, forMode: .common)
+        }
+    }
+
+    private func pollLocationOnce() async {
+        guard !inFlightLocation else { return }
+        let status = manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            publish()
+            return
+        }
+
+        inFlightLocation = true
+        let location = await requestLocation(timeoutSeconds: 8)
+        inFlightLocation = false
+
+        if let location {
+            lastLatitude = location.coordinate.latitude
+            lastLongitude = location.coordinate.longitude
+            publish()
+            if !didFetchTempThisSession {
+                await refreshTempIfPossible(force: false)
+            }
+        } else {
+            publish()
+        }
+    }
+
+    private func refreshTempIfPossible(force: Bool) async {
+        guard let lat = lastLatitude, let lon = lastLongitude else { return }
+        if !force && didFetchTempThisSession { return }
+        if let t = await Self.fetchOpenMeteoTempC(latitude: lat, longitude: lon, timeoutSeconds: 8) {
+            lastTempC = t
+            didFetchTempThisSession = true
+            publish()
+        }
+    }
+
+    private func publish() {
+        let lat = lastLatitude
+        let lon = lastLongitude
+        let temp = lastTempC
+        DispatchQueue.main.async {
+            self.onContextUpdate?(lat, lon, temp)
+        }
+    }
+
+    /// Best-effort single fix; returns nil on deny, error, or timeout.
+    private func requestLocation(timeoutSeconds: TimeInterval) async -> CLLocation? {
+        let status = manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
             return nil
         }
 
@@ -69,6 +210,24 @@ final class GatewayLocationHelper: NSObject, CLLocationManagerDelegate {
         guard let cont = locationContinuation else { return }
         locationContinuation = nil
         cont.resume(returning: location)
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        // Ignore the initial / intermediate .notDetermined callbacks so we don't
+        // resume auth waiters before the user answers the permission sheet.
+        if status != .notDetermined, !authWaiters.isEmpty {
+            let waiters = authWaiters
+            authWaiters.removeAll()
+            for w in waiters {
+                w.resume(returning: status)
+            }
+        }
+        if status == .authorizedWhenInUse || status == .authorizedAlways, started {
+            Task { await self.pollLocationOnce() }
+        } else if started {
+            publish()
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -338,6 +497,10 @@ class AppState: ObservableObject {
     @Published var currentTime = ""
     /// Small subtitle under the clock: last gateway lat/lon + ambient °C/°F.
     @Published var gatewayContextLine = "Location unavailable"
+    /// Latest values for Tag sync (also mirrored in UserDefaults).
+    @Published var lastLatitude: Double? = nil
+    @Published var lastLongitude: Double? = nil
+    @Published var lastTempC: Double? = nil
     @Published var batteryLevel: Int? = nil
     @Published var transferredDateKeys: Set<String> = []
     @Published var pushFeedback: String = ""
@@ -495,11 +658,26 @@ class AppState: ObservableObject {
         clockTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             self.updateTime()
         }
+        startGatewayContextMonitoring()
     }
     
     func stopClock() {
         clockTimer?.invalidate()
         clockTimer = nil
+        GatewayLocationHelper.shared.stopMonitoring()
+        GatewayLocationHelper.shared.onContextUpdate = nil
+    }
+
+    private func startGatewayContextMonitoring() {
+        let helper = GatewayLocationHelper.shared
+        helper.onContextUpdate = { [weak self] lat, lon, tempC in
+            self?.updateGatewayContext(lat: lat, lon: lon, tempC: tempC)
+        }
+        helper.startMonitoring(
+            seedLatitude: lastLatitude,
+            seedLongitude: lastLongitude,
+            seedTempC: lastTempC
+        )
     }
     
     func startRSSIMonitoring(bleManager: BLEManager) {
@@ -530,14 +708,13 @@ class AppState: ObservableObject {
         let ud = UserDefaults.standard
         let hasLoc = ud.bool(forKey: Self.udHasLocKey)
         let hasTemp = ud.bool(forKey: Self.udHasTempKey)
-        let lat = ud.double(forKey: Self.udLatKey)
-        let lon = ud.double(forKey: Self.udLonKey)
-        let tempC = ud.double(forKey: Self.udTempKey)
-        gatewayContextLine = Self.formatGatewayContext(
-            lat: hasLoc ? lat : nil,
-            lon: hasLoc ? lon : nil,
-            tempC: hasTemp ? tempC : nil
-        )
+        let lat = hasLoc ? ud.double(forKey: Self.udLatKey) : nil
+        let lon = hasLoc ? ud.double(forKey: Self.udLonKey) : nil
+        let tempC = hasTemp ? ud.double(forKey: Self.udTempKey) : nil
+        lastLatitude = lat
+        lastLongitude = lon
+        lastTempC = tempC
+        gatewayContextLine = Self.formatGatewayContext(lat: lat, lon: lon, tempC: tempC)
     }
 
     func updateGatewayContext(lat: Double?, lon: Double?, tempC: Double?) {
@@ -546,17 +723,18 @@ class AppState: ObservableObject {
             ud.set(lat, forKey: Self.udLatKey)
             ud.set(lon, forKey: Self.udLonKey)
             ud.set(true, forKey: Self.udHasLocKey)
+            lastLatitude = lat
+            lastLongitude = lon
         }
         if let tempC {
             ud.set(tempC, forKey: Self.udTempKey)
             ud.set(true, forKey: Self.udHasTempKey)
+            lastTempC = tempC
         }
-        let hasLoc = ud.bool(forKey: Self.udHasLocKey)
-        let hasTemp = ud.bool(forKey: Self.udHasTempKey)
         gatewayContextLine = Self.formatGatewayContext(
-            lat: hasLoc ? ud.double(forKey: Self.udLatKey) : lat,
-            lon: hasLoc ? ud.double(forKey: Self.udLonKey) : lon,
-            tempC: hasTemp ? ud.double(forKey: Self.udTempKey) : tempC
+            lat: lastLatitude,
+            lon: lastLongitude,
+            tempC: lastTempC
         )
     }
 
@@ -672,52 +850,20 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     private func sendTimestampAndFilenamesRequest() {
-        Task {
-            await self.sendTimestampAndFilenamesRequestAsync()
-        }
-    }
-
-    private func sendTimestampAndFilenamesRequestAsync() async {
+        // Use the continuously refreshed gateway context (location ~10 s, temp
+        // session/hourly) — no blocking location/weather wait on the BLE path.
         var payload: [String: Any] = [
             "timestamp": Int(Date().timeIntervalSince1970),
             "sendFilenames": true,
         ]
-
-        let lat: Double?
-        let lon: Double?
-        let tempC: Double?
-
-        if let location = await GatewayLocationHelper.shared.requestLocation(timeoutSeconds: 5) {
-            let resolvedLat = location.coordinate.latitude
-            let resolvedLon = location.coordinate.longitude
-            payload["latitude"] = resolvedLat
-            payload["longitude"] = resolvedLon
-            if let t = await GatewayLocationHelper.fetchOpenMeteoTempC(
-                latitude: resolvedLat, longitude: resolvedLon, timeoutSeconds: 5
-            ) {
-                payload["tempC"] = t
-                lat = resolvedLat
-                lon = resolvedLon
-                tempC = t
-            } else {
-                lat = resolvedLat
-                lon = resolvedLon
-                tempC = nil
-            }
-        } else {
-            lat = nil
-            lon = nil
-            tempC = nil
+        if let lat = appState.lastLatitude, let lon = appState.lastLongitude {
+            payload["latitude"] = lat
+            payload["longitude"] = lon
         }
-
-        let gatewayPayload = payload
-        let contextLat = lat
-        let contextLon = lon
-        let contextTempC = tempC
-        await MainActor.run {
-            self.appState.updateGatewayContext(lat: contextLat, lon: contextLon, tempC: contextTempC)
-            self.writeGatewayJSONObject(gatewayPayload)
+        if let tempC = appState.lastTempC {
+            payload["tempC"] = tempC
         }
+        writeGatewayJSONObject(payload)
     }
 
     func clearMemory() {

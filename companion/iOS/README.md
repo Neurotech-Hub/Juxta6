@@ -21,6 +21,7 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 - **BLE scan & connect** — Hublink service UUID; peripherals advertise as `JX_*`
 - **Firmware gate** — Node `firmwareVersion` must start with `6.`; otherwise disconnect
 - **Time sync + context** — Gateway write includes UTC `timestamp`, optional lat/lon, and optional Open-Meteo `tempC`; clock subtitle shows last fix + °C/°F
+- **Live location / ambient** — location refreshes ~every 10 s while the app is open; ambient °C is fetched once per launch (and hourly if left open) for the clock subtitle and Tag sync
 - **Device settings** — subject, experiment, adv/scan interval (0 = off, else 1–120 s), inactivity multiplier (1–10), motion logging
 - **Daily packages** — transfer `JXV` / `JXS` / `JXB` + `YYYYMMDD` into `Documents/<device_id>/`
 - **Packages / plots / terminal / info** tabs
