@@ -64,9 +64,6 @@ burst length. Defaults: **scan every 30 s**, **adv every 5 s** (0 = disable that
 modality). Each burst is fixed ~**1 s** (scan = 500 ms ANT1 + 500 ms ANT2;
 adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 
-NVS may still hold older 1/1 values from prior builds — write Gateway
-`scanInterval`/`advInterval` or clear settings to pick up new defaults.
-
 ## Build / flash (user)
 
 - Board: `nrf54l15tag/nrf54l15/cpuapp`
