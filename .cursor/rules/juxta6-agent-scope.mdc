@@ -13,4 +13,5 @@ Canonical detail: `agents/RULES.md`.
 - Prefer Zephyr DT aliases / sensors API; ADXL367 motion only; BMI/BME off unless probing; BTN1=magnet; LED1 only.
 - Channel Sounding / RAS only in `lib/juxta_range/`. Never copy DK CS antenna overlays onto Tag TWI pins.
 - Keep HIL apps small; no Hublink / NOR logger / MCUboot / Encounter Manager / Juxta prod unless explicitly requested.
+- iOS companion is `companion/iOS` (Xcode **Juxta6**); do not west-build it.
 - Power, DEBUG OUT, missing board target, or missing CS Kconfig: stop and ask.

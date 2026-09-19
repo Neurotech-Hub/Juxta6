@@ -85,7 +85,7 @@ adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 6. RTT shows `JXB` / `JXV`; companion **LIST** / pull dated `JX{S|V|B}YYYYMMDD.csv`.
 7. Gateway `clearMemory` erases CSV regions (deferred workqueue) then empty LIST.
 
-If the iOS app filters on `firmwareVersion`, allowlist `6.1`.
+iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.x` / schema v6).
 
 ## RTT line shapes
 
@@ -100,4 +100,3 @@ JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c>
 - M3: MCUboot / SMP DFU (wire DFU — port from Juxta 5.8)
 - M4: Encounter Manager + optional CS
 - Temperature: retain BME688, or sync temp from iPhone to calibrate ADXL/IMU (~10 °C skew between devices today)
-- Update iOS companion for firmware 6.1.0 / schema v6 memory mapping

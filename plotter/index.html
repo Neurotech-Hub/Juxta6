@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Juxta6 Plotter</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@2.35.2/plotly-basic.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Juxta6 Plotter</h1>
+    <label class="tz-control">
+      Timezone
+      <select id="tz-select">
+        <option value="America/New_York" selected>Eastern</option>
+        <option value="America/Chicago">Central</option>
+      </select>
+    </label>
+  </header>
+
+  <main>
+    <section id="upload-section">
+      <div id="drop-zone">
+        <p><strong>Drop CSV files here</strong> (JXV / JXB / JXS)</p>
+        <p class="hint">or</p>
+        <button id="browse-btn" type="button">Browse files</button>
+        <input type="file" id="file-input" accept=".csv" multiple hidden>
+      </div>
+      <div id="load-status" hidden></div>
+      <div id="warnings" hidden></div>
+    </section>
+
+    <section id="summary-section" hidden>
+      <div class="card">
+        <div class="card-header">
+          <h2>Summary</h2>
+          <button id="copy-summary-btn" type="button">Copy summary</button>
+        </div>
+        <pre id="summary-text"></pre>
+      </div>
+    </section>
+
+    <section id="plots-section" hidden>
+      <div class="card">
+        <h2>Activity</h2>
+        <div id="plot-activity" class="plot"></div>
+      </div>
+      <div class="card">
+        <h2>Battery &amp; Temperature</h2>
+        <div id="plot-batt-temp" class="plot"></div>
+      </div>
+      <div class="card">
+        <h2>BLE Peers</h2>
+        <div id="plot-peers" class="plot"></div>
+      </div>
+    </section>
+
+    <section id="events-section" hidden>
+      <div class="card">
+        <h2>System Events</h2>
+        <div id="events-table"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Juxta6 Plotter — schema jxta-nor-csv-v6; all processing happens in your browser; no data is uploaded anywhere.</p>
+  </footer>
+
+  <script src="js/parse.js"></script>
+  <script src="js/plots.js"></script>
+  <script src="js/table.js"></script>
+  <script src="js/summary.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -20,6 +20,7 @@ Canonical constraints for Cursor / coding agents. Cursor also loads a short alwa
 - **Never** copy nRF54L15 DK CS antenna-switch overlays onto Tag (`gpio1 11–14` are Tag TWI). Use Tag `skyworks,sky13348` / board DTS.
 - Do not expand into Hublink, NOR CSV logging, MCUboot/DFU, Encounter Manager, or Juxta prod without an explicit request.
 - Anchors are a **policy** on the same mobile↔mobile ranging stack — do not invent anchor-only CS paths.
+- **iOS companion** lives under [`companion/iOS/`](../companion/iOS/) (Xcode project **Juxta6**). Do not west-build it; do not mix NCS/west commands into that tree. Keep firmware (`applications/`, `lib/`) and companion edits in lockstep on the Hublink / schema v6 contract (`companion/iOS/spec_HUBLINK.md`).
 
 ## When stuck
 

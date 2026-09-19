@@ -49,6 +49,9 @@ Architecture brief: [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md).
 ├── docs/
 │   ├── HIL_VALIDATION.md
 │   └── ...
+├── companion/
+│   └── iOS/                       # Juxta6 Xcode companion (Hublink + schema v6)
+├── plotter/                       # Juxta6 Plotter (static; GitHub Pages)
 ├── reference/juxta5-8/            # Frozen — do not west-build
 └── applications/
     ├── tag-blink/ … tag-ble-adv/  # HIL-01..07 hardware fixtures
@@ -106,6 +109,8 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | App | Intent |
 | --- | --- |
 | `juxta6-0-prod` | Shelf / magnet / Hublink sync / dual-ant max-RSSI / live vitals / **MX25L3233 NOR CSV** + Filename/File Transfer; RTT mirrors. See [applications/juxta6-0-prod/README.md](applications/juxta6-0-prod/README.md). |
+| Companion | [companion/iOS](companion/iOS) — **Juxta6** Xcode app (firmware 6.x / `jxta-nor-csv-v6`). Open `Juxta6.xcodeproj` (not west). |
+| Plotter | [plotter/](plotter/) — **Juxta6 Plotter** (browser CSV plots for schema v6). GitHub Pages deploys this folder via Actions. |
 
 ## Later milestones
 
@@ -115,7 +120,6 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | M4 | Encounter Manager + optional CS |
 | — | 3-tag HIL; anchor policy |
 | — | Temperature: retain BME688, or sync temp from iPhone to calibrate ADXL/IMU (~10 °C skew between devices today) |
-| — | Update iOS companion for firmware 6.1.0 / schema v6 memory mapping |
 
 ## Non-goals (M2)
 
@@ -128,4 +132,5 @@ No MCUboot/DFU (cue only), Channel Sounding in prod, Encounter Manager, LED2/BTN
 - [docs/nRF54L15_Tag_Hardware_Reference.md](docs/nRF54L15_Tag_Hardware_Reference.md)
 - [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md)
 - [lib/juxta_range/README.md](lib/juxta_range/README.md)
+- [plotter/](plotter/) — Juxta6 Plotter (GitHub Pages)
 - [reference/juxta5-8/REFERENCE.md](reference/juxta5-8/REFERENCE.md)
