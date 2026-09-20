@@ -127,13 +127,13 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 
 | Milestone | Intent |
 | --- | --- |
-| M3 | MCUboot + SMP DFU (wire DFU — port from Juxta 5.8) |
+| M3 | MCUboot + SMP BLE DFU (nRF Device Manager) — **done** in `juxta6-0-prod` |
 | M4 | Encounter Manager + optional CS |
 | — | 3-tag HIL; anchor policy |
 
 ## Non-goals (M2)
 
-No MCUboot/DFU (cue only), Channel Sounding in prod, Encounter Manager, LED2/BTN2, FUEL ADC, or DK CS antenna overlays on Tag TWI pins.
+No Channel Sounding in prod, Encounter Manager, LED2/BTN2, FUEL ADC, or DK CS antenna overlays on Tag TWI pins.
 
 ## Links
 

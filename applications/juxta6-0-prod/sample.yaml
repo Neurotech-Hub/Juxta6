@@ -1,8 +1,8 @@
 sample:
-  name: Juxta6-0 Prod M1
+  name: Juxta6-0 Prod
   description: >
-    Shelf, Hublink datetime sync, dual-antenna max-RSSI production, live vitals.
-    RTT JXS/JXB/JXV only (no NOR). No MCUboot/CS.
+    Shelf, Hublink datetime sync, dual-antenna max-RSSI production, live vitals,
+    NOR CSV, MCUboot SMP BLE DFU. No Channel Sounding.
 
 common:
   tags:

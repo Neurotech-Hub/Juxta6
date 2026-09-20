@@ -505,8 +505,10 @@ class AppState: ObservableObject {
     @Published var transferredDateKeys: Set<String> = []
     @Published var pushFeedback: String = ""
     @Published var showShelfDisconnectOverlay = false
-    /// True after a compatible Juxta6 node JSON read populates Device Settings.
+    /// True after compatible Juxta6 node JSON read populates Device Settings (or ladybug debug seed).
     @Published var hasFullNodeDeviceSettings = false
+    /// Ladybug-only: connected UI without BLE — enables simulated Push. Cleared on real disconnect / ladybug off.
+    @Published var isDebugDeviceSession = false
 
     private var shelfDisconnectTimeoutWorkItem: DispatchWorkItem?
 
@@ -543,7 +545,8 @@ class AppState: ObservableObject {
     @Published var memoryLevel: Int? = nil
     @Published var firmwareVersion: String? = nil
 
-    // Session settings (populated from node on connect)
+    // Session settings (populated from node on connect).
+    // When adding fields here, update SettingsSnapshot + applyDebugDeviceSettingsSession() (ladybug).
     @Published var subjectID: String = ""
     @Published var experiment: String = ""
     @Published var advInterval = 5
@@ -567,6 +570,7 @@ class AppState: ObservableObject {
 
     /// Snapshot of settings as they exist on the connected device (after node read or successful Push).
     /// Compared against the live values to detect unsaved edits.
+    /// When adding/removing fields here, also update `applyDebugDeviceSettingsSession()` (ladybug UI testing).
     private struct SettingsSnapshot: Equatable {
         var subjectID: String
         var experiment: String
@@ -596,8 +600,54 @@ class AppState: ObservableObject {
         settingsBaseline = nil
     }
 
+    /// Revert live fields to the last node/Push baseline (discard local edits).
+    func discardSettingsEdits() {
+        guard let baseline = settingsBaseline else { return }
+        subjectID = baseline.subjectID
+        experiment = baseline.experiment
+        advInterval = baseline.advInterval
+        scanInterval = baseline.scanInterval
+        advOff = baseline.advOff
+        scanOff = baseline.scanOff
+        inactivityMultiplier = baseline.inactivityMultiplier
+        motionOff = baseline.motionOff
+        pushFeedback = ""
+        log("Settings edits discarded (restored from device baseline)")
+    }
+
+    /// Ladybug debug connect: seed session settings + baseline so Edit / Unsaved / Done / Push work without BLE.
+    /// KEEP IN SYNC with `SettingsSnapshot` and the live `@Published` session settings above whenever those change.
+    func applyDebugDeviceSettingsSession() {
+        // Mirror production defaults / a plausible node payload — same fields as SettingsSnapshot.
+        subjectID = "DEBUG"
+        experiment = "debug"
+        advInterval = 5
+        scanInterval = 30
+        advOff = false
+        scanOff = false
+        inactivityMultiplier = 1
+        motionOff = false
+        firmwareVersion = "6.0.0-debug"
+        hasFullNodeDeviceSettings = true
+        isDebugDeviceSession = true
+        pushFeedback = ""
+        captureSettingsBaseline()
+        log("DEBUG: Seeded device settings baseline (keep applyDebugDeviceSettingsSession in sync with SettingsSnapshot)")
+    }
+
+    /// Ladybug debug disconnect: drop the fake node settings session.
+    func clearDebugDeviceSettingsSession() {
+        clearSettingsBaseline()
+        hasFullNodeDeviceSettings = false
+        isDebugDeviceSession = false
+        pushFeedback = ""
+        firmwareVersion = nil
+        log("DEBUG: Cleared device settings baseline")
+    }
+
     func resetNodeDeviceSettingsAvailability() {
         hasFullNodeDeviceSettings = false
+        isDebugDeviceSession = false
         showClearMemoryAlert = false
         showShelfModeAlert = false
     }
@@ -906,10 +956,6 @@ class BLEManager: NSObject, ObservableObject {
     }
     
     func saveSettings() {
-        guard gatewayCharacteristic != nil else {
-            appState.log("ERROR: Gateway characteristic not available")
-            return
-        }
         guard appState.hasFullNodeDeviceSettings else {
             appState.log("ERROR: Push skipped — node has not reported full device settings")
             return
@@ -931,6 +977,22 @@ class BLEManager: NSObject, ObservableObject {
         let trimmedExperiment = appState.experiment.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedExperiment.isEmpty {
             command["experiment"] = trimmedExperiment
+        }
+
+        // Ladybug session: no gateway — accept the local edit as if Push succeeded.
+        if appState.isDebugDeviceSession {
+            appState.pushFeedback = "Pushed"
+            appState.captureSettingsBaseline()
+            appState.log("DEBUG: Simulated settings push \(command)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak appState] in
+                appState?.pushFeedback = ""
+            }
+            return
+        }
+
+        guard gatewayCharacteristic != nil else {
+            appState.log("ERROR: Gateway characteristic not available")
+            return
         }
 
         if writeGatewayJSONObject(command) {
@@ -1555,6 +1617,8 @@ struct ContentView: View {
     enum AppTab: Hashable { case device, packages, terminal, info }
 
     @State private var selectedTab: AppTab = .device
+    @State private var showDeviceSettingsEditor = false
+    @State private var showUnpushedSettingsAlert = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -1740,9 +1804,16 @@ struct ContentView: View {
             }
             Spacer()
             
-            // Debug bug icon
+            // Debug bug icon — toggles connected UI without BLE.
+            // Seeds/clears Device Settings baseline via applyDebugDeviceSettingsSession /
+            // clearDebugDeviceSettingsSession so Unsaved / Done prompts can be tested offline.
             Button(action: {
                 appState.isConnected.toggle()
+                if appState.isConnected {
+                    appState.applyDebugDeviceSettingsSession()
+                } else {
+                    appState.clearDebugDeviceSettingsSession()
+                }
                 appState.log("DEBUG: Connection state toggled to \(appState.isConnected)")
             }) {
                 Image(systemName: "ladybug.fill")
@@ -1915,7 +1986,7 @@ struct ContentView: View {
                 .buttonStyle(JuxtaButtonStyle(color: .red, isDestructive: true))
             }
             
-            deviceSettingsCard
+            deviceSettingsSummaryCard
 
             dailyPackagesCard
 
@@ -1946,6 +2017,37 @@ struct ContentView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(.systemBackground))
+        .sheet(isPresented: $showDeviceSettingsEditor) {
+            NavigationStack {
+                deviceSettingsEditor
+                    .navigationTitle("Device Settings")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { attemptCloseDeviceSettingsEditor() }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+            .interactiveDismissDisabled(appState.hasUnsavedSettings)
+            .alert("Restore Defaults", isPresented: $appState.showDefaultSettingsAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Restore", role: .destructive) {
+                    appState.resetSettingsToDefaults()
+                }
+            } message: {
+                Text("Advertising interval will be set to 5 s, scanning interval to 30 s, inactive scan multiplier to 1×, with motion logging on. Tap Push to send these values to the device.")
+            }
+            .alert("Unpushed Settings", isPresented: $showUnpushedSettingsAlert) {
+                Button("Return to Edit", role: .cancel) { }
+                Button("Dismiss Edits", role: .destructive) {
+                    appState.discardSettingsEdits()
+                    showDeviceSettingsEditor = false
+                }
+            } message: {
+                Text("You have edited settings without pushing them to the device.")
+            }
+        }
         .alert("Clear Memory", isPresented: $appState.showClearMemoryAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Clear Memory", role: .destructive) { bleManager.clearMemory() }
@@ -1961,132 +2063,71 @@ struct ContentView: View {
         } message: {
             Text("This will reset the device to shelf mode. The device will restart and return to its default state.")
         }
-        .alert("Restore Defaults", isPresented: $appState.showDefaultSettingsAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Restore", role: .destructive) {
-                appState.resetSettingsToDefaults()
+        .onChange(of: appState.isConnected) { _, connected in
+            if !connected {
+                showUnpushedSettingsAlert = false
+                showDeviceSettingsEditor = false
             }
-        } message: {
-            Text("Advertising interval will be set to 5 s, scanning interval to 30 s, inactive scan multiplier to 1×, with motion logging on. Tap Push to send these values to the device.")
         }
     }
 
-    // MARK: - Inline Device Settings card
+    private func attemptCloseDeviceSettingsEditor() {
+        if appState.hasUnsavedSettings {
+            showUnpushedSettingsAlert = true
+        } else {
+            showDeviceSettingsEditor = false
+        }
+    }
 
-    private var deviceSettingsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    // MARK: - Device Settings summary (read-only)
+
+    private var deviceSettingsSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
                 Text("Device Settings")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.primary)
+                if appState.hasUnsavedSettings {
+                    Text("Unsaved")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.blue)
+                }
                 Spacer()
-                Button(action: { appState.showDefaultSettingsAlert = true }) {
-                    Text("Default")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color(.systemGray))
+                Button(action: { showDeviceSettingsEditor = true }) {
+                    Text("Edit")
+                        .font(.system(size: 13, weight: .semibold))
                 }
-                .buttonStyle(.plain)
-                .padding(.trailing, 22)
-                .accessibilityLabel("Reset on-screen settings to defaults")
-                if !appState.pushFeedback.isEmpty {
-                    Text(appState.pushFeedback)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.green)
-                        .transition(.opacity)
-                }
-                Button(action: { bleManager.saveSettings() }) {
-                    Image(systemName: appState.pushFeedback.isEmpty ? "arrow.up.circle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(appState.pushFeedback.isEmpty ? .blue : .green)
-                }
-                .accessibilityLabel("Push settings to device")
+                .accessibilityLabel("Edit device settings")
             }
 
-            HStack(spacing: 8) {
-                Text("Subject")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .frame(width: 70, alignment: .leading)
-                TextField("Subject ID", text: $appState.subjectID)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 13))
-                    .autocorrectionDisabled(true)
-                    .textInputAutocapitalization(.never)
-            }
-
-            HStack(spacing: 8) {
-                Text("Experiment")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .frame(width: 70, alignment: .leading)
-                TextField("Experiment", text: $appState.experiment)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 13))
-                    .autocorrectionDisabled(true)
-                    .textInputAutocapitalization(.never)
-            }
-
-            HStack(spacing: 8) {
-                Text("Adv")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .frame(width: 70, alignment: .leading)
-                Slider(value: Binding(
-                    get: { Double(appState.advInterval) },
-                    set: {
-                        let rounded = Int($0.rounded())
-                        appState.advInterval = max(1, min(120, rounded))
-                    }
-                ), in: 1...120, step: 1)
-                .disabled(appState.advOff)
-                Text(appState.advOff ? "-" : "\(appState.advInterval)s")
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(appState.advOff ? .secondary : .primary)
-                    .frame(width: 40, alignment: .trailing)
-                settingsOffControl(isOn: $appState.advOff)
-            }
-
-            HStack(spacing: 8) {
-                Text("Scan")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .frame(width: 70, alignment: .leading)
-                Slider(value: Binding(
-                    get: { Double(appState.scanInterval) },
-                    set: {
-                        let rounded = Int($0.rounded())
-                        appState.scanInterval = max(1, min(120, rounded))
-                    }
-                ), in: 1...120, step: 1)
-                .disabled(appState.scanOff)
-                Text(appState.scanOff ? "-" : "\(appState.scanInterval)s")
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(appState.scanOff ? .secondary : .primary)
-                    .frame(width: 40, alignment: .trailing)
-                settingsOffControl(isOn: $appState.scanOff)
-            }
-
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Inactive Scan Mult")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                    Stepper(value: $appState.inactivityMultiplier, in: 1...10) {
-                        Text("\(appState.inactivityMultiplier)×")
-                            .font(.system(size: 13, design: .monospaced))
-                    }
-                    .disabled(appState.scanOff || appState.motionOff)
-                    .opacity(appState.scanOff || appState.motionOff ? 0.45 : 1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Motion")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                    settingsOffControl(isOn: $appState.motionOff)
-                }
-            }
+            deviceSettingsSummaryRow(
+                label: "Subject",
+                value: appState.subjectID.isEmpty ? "—" : appState.subjectID
+            )
+            deviceSettingsSummaryRow(
+                label: "Experiment",
+                value: appState.experiment.isEmpty ? "—" : appState.experiment
+            )
+            deviceSettingsSummaryRow(
+                label: "Adv",
+                value: appState.advOff ? "Off" : "\(appState.advInterval)s",
+                monospaced: true
+            )
+            deviceSettingsSummaryRow(
+                label: "Scan",
+                value: appState.scanOff ? "Off" : "\(appState.scanInterval)s",
+                monospaced: true
+            )
+            deviceSettingsSummaryRow(
+                label: "Inactive Mult",
+                value: "\(appState.inactivityMultiplier)×",
+                monospaced: true
+            )
+            deviceSettingsSummaryRow(
+                label: "Motion",
+                value: appState.motionOff ? "Off" : "On",
+                monospaced: true
+            )
         }
         .padding(12)
         .background(Color(.systemGray6))
@@ -2097,24 +2138,176 @@ struct ContentView: View {
         )
         .shadow(color: appState.hasUnsavedSettings ? Color.blue.opacity(0.45) : .clear,
                 radius: appState.hasUnsavedSettings ? 8 : 0)
+        .animation(.easeInOut(duration: 0.2), value: appState.hasUnsavedSettings)
+    }
+
+    private func deviceSettingsSummaryRow(label: String, value: String, monospaced: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .frame(width: 96, alignment: .leading)
+            Text(value)
+                .font(monospaced
+                      ? .system(size: 12, design: .monospaced)
+                      : .system(size: 12))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    // MARK: - Device Settings editor (sheet)
+
+    private var deviceSettingsEditor: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
+                    Button(action: { appState.showDefaultSettingsAlert = true }) {
+                        Text("Default")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Color(.systemGray))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Reset on-screen settings to defaults")
+                    Spacer()
+                    if !appState.pushFeedback.isEmpty {
+                        Text(appState.pushFeedback)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.green)
+                            .transition(.opacity)
+                    } else if appState.hasUnsavedSettings {
+                        Text("Not pushed")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.blue)
+                            .transition(.opacity)
+                    }
+                    Button(action: { bleManager.saveSettings() }) {
+                        Image(systemName: appState.pushFeedback.isEmpty
+                              ? (appState.hasUnsavedSettings ? "arrow.up.circle.fill" : "arrow.up.circle")
+                              : "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(appState.pushFeedback.isEmpty
+                                             ? (appState.hasUnsavedSettings ? .blue : Color(.systemGray3))
+                                             : .green)
+                    }
+                    .accessibilityLabel("Push settings to device")
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(appState.hasUnsavedSettings ? Color.blue.opacity(0.08) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(appState.hasUnsavedSettings ? Color.blue : Color.clear, lineWidth: 1.5)
+                )
+
+                HStack(spacing: 8) {
+                    Text("Subject")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .frame(width: 70, alignment: .leading)
+                    TextField("Subject ID", text: $appState.subjectID)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.never)
+                }
+
+                HStack(spacing: 8) {
+                    Text("Experiment")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .frame(width: 70, alignment: .leading)
+                    TextField("Experiment", text: $appState.experiment)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.never)
+                }
+
+                HStack(spacing: 8) {
+                    Text("Adv")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .frame(width: 70, alignment: .leading)
+                    Slider(value: Binding(
+                        get: { Double(appState.advInterval) },
+                        set: {
+                            let rounded = Int($0.rounded())
+                            appState.advInterval = max(1, min(120, rounded))
+                        }
+                    ), in: 1...120, step: 1)
+                    .disabled(appState.advOff)
+                    Text(appState.advOff ? "—" : "\(appState.advInterval)s")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(appState.advOff ? .secondary : .primary)
+                        .frame(width: 40, alignment: .trailing)
+                    settingsEnabledToggle(isOff: $appState.advOff)
+                }
+
+                HStack(spacing: 8) {
+                    Text("Scan")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .frame(width: 70, alignment: .leading)
+                    Slider(value: Binding(
+                        get: { Double(appState.scanInterval) },
+                        set: {
+                            let rounded = Int($0.rounded())
+                            appState.scanInterval = max(1, min(120, rounded))
+                        }
+                    ), in: 1...120, step: 1)
+                    .disabled(appState.scanOff)
+                    Text(appState.scanOff ? "—" : "\(appState.scanInterval)s")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(appState.scanOff ? .secondary : .primary)
+                        .frame(width: 40, alignment: .trailing)
+                    settingsEnabledToggle(isOff: $appState.scanOff)
+                }
+
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Inactive Scan Mult")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Stepper(value: $appState.inactivityMultiplier, in: 1...10) {
+                            Text("\(appState.inactivityMultiplier)×")
+                                .font(.system(size: 13, design: .monospaced))
+                        }
+                        .disabled(appState.scanOff || appState.motionOff)
+                        .opacity(appState.scanOff || appState.motionOff ? 0.45 : 1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Motion")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        settingsEnabledToggle(isOff: $appState.motionOff)
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .background(Color(.systemBackground))
         .animation(.easeInOut(duration: 0.2), value: appState.pushFeedback)
         .animation(.easeInOut(duration: 0.2), value: appState.hasUnsavedSettings)
     }
 
-    private func settingsOffControl(isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 4) {
-            Text("Off")
-                .font(.system(size: 11, weight: isOn.wrappedValue ? .semibold : .regular))
-                .foregroundColor(isOn.wrappedValue ? .white : .secondary)
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .scaleEffect(0.75)
-                .tint(.white)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(isOn.wrappedValue ? Color.red : Color.red.opacity(0.2))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+    /// Standard iOS toggle: on (right) means the feature is enabled. Backing store is still `*Off`.
+    private func settingsEnabledToggle(isOff: Binding<Bool>) -> some View {
+        Toggle(
+            "",
+            isOn: Binding(
+                get: { !isOff.wrappedValue },
+                set: { isOff.wrappedValue = !$0 }
+            )
+        )
+        .labelsHidden()
+        .accessibilityLabel("Enabled")
     }
 
     private var dailyPackagesCard: some View {
@@ -3334,7 +3527,7 @@ struct InfoAboutView: View {
         "Shelf mode is the default: ultra-low-power System OFF — no LED, no radio. A magnet is the only way to wake.",
         "Hold a magnet ~3 s to wake: LED solid ON on apply, off at 3 s as a \"release now\" cue, then slow blink (50 ms on / 450 ms off). Holds under 3 s are rejected as false positives.",
         "In Juxta6, scan and connect. The LED stays solid ON for the duration of the BLE connection.",
-        "Time sync runs automatically; device settings populate the app. Tap Push to send any changes back.",
+        "Time sync runs automatically; device settings populate the app. Tap Edit to change them, then Push to send changes back.",
         "Disconnect to enter production: 5× blink, LED off, then vitals/logging run with LED off throughout.",
         "Return to shelf during production with a ~3 s magnet hold: solid ON → off at 3 s → 5× blink → grace period → one confirmation blink → System OFF. A shelf_entry row is written to JXS.",
         "Hold ≥ 10 s only to enter DFU: LED off at 3 s, then 3× blink and fast blink at 10 s. Release between 3 s and 10 s if you only want to wake, not update firmware."
@@ -3444,10 +3637,10 @@ struct InfoAboutView: View {
                     (Text("DFU mode is entered with a ≥ 10 s magnet hold (see gestures above). Once in DFU, use Nordic Semiconductor's ")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
-                     + Text("nRF Connect")
+                     + Text("nRF Device Manager")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.secondary)
-                     + Text(" app to flash firmware. Firmware image files are supplied by the developer.")
+                     + Text(" app to upload the firmware image. Image files are supplied by the developer.")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary))
                     .fixedSize(horizontal: false, vertical: true)

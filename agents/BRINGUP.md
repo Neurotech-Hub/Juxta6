@@ -42,7 +42,7 @@ Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
 
 | # | App | Expect |
 | --- | --- | --- |
-| — | `juxta6-0-prod` | Shelf → Hublink timestamp → prod; NOR JXS/JXV/JXB + RTT mirrors; companion LIST/pull; clearMemory erases; ≥10 s DFU cue only. No MCUboot/CS. See app README. |
+| — | `juxta6-0-prod` | Shelf → Hublink timestamp → prod; NOR JXS/JXV/JXB + RTT mirrors; companion LIST/pull; clearMemory; ≥10 s MCUboot SMP DFU (Device Manager). No CS. See app README. |
 
 ## Hardware notes
 

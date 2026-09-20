@@ -1,0 +1,13 @@
+/*
+ * MCUboot links into boot_partition; the app uses slot0 (board DTS chosen).
+ * Required when SB_CONFIG_PARTITION_MANAGER=n.
+ *
+ * Keep this as sysbuild/mcuboot.overlay (a file). A sysbuild/mcuboot/
+ * directory would become MCUboot's APPLICATION_CONFIG_DIR and then
+ * require its own prj.conf.
+ */
+/ {
+	chosen {
+		zephyr,code-partition = &boot_partition;
+	};
+};

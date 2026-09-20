@@ -1,6 +1,6 @@
 # Juxta6 (iOS companion)
 
-iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.2.0**, schema **`jxta-nor-csv-v7`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
+iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.3.0**, schema **`jxta-nor-csv-v7`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
 
 Open **`Juxta6.xcodeproj`**, scheme **Juxta6**, on a physical iPhone (BLE is not available in the Simulator).
 
@@ -13,7 +13,7 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 - iOS 17.0+
 - Xcode 15.0+
 - Physical Bluetooth-enabled iPhone
-- Tag running Juxta6 firmware **6.x** (current: `6.2.0`)
+- Tag running Juxta6 firmware **6.x** (current: `6.3.0`)
 - Location When In Use (optional) — used once per sync for gateway lat/lon + Open-Meteo ambient °C
 
 ## Features
@@ -65,7 +65,7 @@ See [`spec_HUBLINK.md`](spec_HUBLINK.md). UUIDs match `juxta6-0-prod`.
 
 ```json
 {
-  "firmwareVersion": "6.2.0",
+  "firmwareVersion": "6.3.0",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
@@ -90,7 +90,7 @@ UTC `timestamp`, `sendFilenames`, optional `latitude` / `longitude` / `tempC`, s
 
 ## Firmware update (DFU)
 
-Juxta6 does not flash firmware yet. Use magnet DFU cue + Nordic **nRF Connect** when images are available.
+Firmware OTA uses Nordic **nRF Device Manager** (not this companion). From shelf, hold the magnet/BTN1 **≥10 s** until fast blue blink; connect in Device Manager and upload the app image. Confirmed **≥3 s** hold returns to shelf. See [`applications/juxta6-0-prod/README.md`](../../applications/juxta6-0-prod/README.md).
 
 ## License
 

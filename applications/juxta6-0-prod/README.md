@@ -1,7 +1,8 @@
-# juxta6-0-prod (M2)
+# juxta6-0-prod (M3)
 
 Juxta-style firmware for nRF54L15 Tag: shelf / magnet / **Hublink GATT sync** /
-dual-antenna advertising RSSI / live ADXL+VDD vitals / **MX25L3233 NOR CSV**.
+dual-antenna advertising RSSI / live ADXL+VDD vitals / **MX25L3233 NOR CSV** /
+**MCUboot SMP BLE DFU** (nRF Device Manager).
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
 SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v7`** (JXV/JXB rows use
@@ -17,8 +18,9 @@ need a `clearMemory`/format). Layout:
 | Checkpoint ring | `0x3F0000` | 64 KB |
 
 RTT still mirrors `JXS` / `JXB` / `JXV` for debugger bring-up. Filename / File
-Transfer are live (LIST + chunked offload). **No MCUboot/DFU** yet (BTN1 ≥10 s =
-LED cue + RTT/`dfu_requested` only). **No Channel Sounding.**
+Transfer are live (LIST + chunked offload). **DFU:** BTN1 ≥10 s → MCUboot SMP
+BLE advertising for **nRF Device Manager** (fast blue blink; ≥3 s hold returns
+to shelf). **No Channel Sounding.**
 
 ## Debugger / RTT
 
@@ -70,6 +72,36 @@ adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 - Board: `nrf54l15tag/nrf54l15/cpuapp`
 - Snippet: `rtt-console`
 - App: `applications/juxta6-0-prod`
+- **Sysbuild / MCUboot required** (`sysbuild.conf`, Partition Manager **off**).
+  In nRF Connect: enable Sysbuild so MCUboot + app are flashed. Slots come from
+  Tag DTS (`boot` 64 KB, `slot0`/`slot1` 664 KB, `storage` 36 KB). First
+  MCUboot bring-up — or a switch from a Partition Manager image — needs a full
+  chip erase / recover.
+- DFU images are **unsigned** (`CONFIG_BOOT_SIGNATURE_TYPE_NONE`) for local
+  Device Manager uploads.
+
+## DFU (nRF Device Manager)
+
+This zip is the **app slot** only. First-time programming (or after erase) still
+uses Sysbuild `merged.hex` so MCUboot is on the device.
+
+After a successful Sysbuild in nRF Connect, copy a versioned package out of
+`build/` (do not commit that folder):
+
+```bash
+applications/juxta6-0-prod/scripts/export-dfu.sh
+```
+
+Writes `dist/juxta6-0-prod-<version>.zip` from `JUXTA_FIRMWARE_VERSION` in
+[`src/juxta_prod.h`](src/juxta_prod.h). Bump that string before exporting a new
+image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
+
+1. From shelf, hold **BTN1 ≥10 s** (LED off at 3 s commit cue). Battery must be
+   ≥2700 mV or the wake falls through to normal sync.
+2. Tag: 3× blink → fast blue blink; advertises SMP UUID as `JX_XXXXXX`.
+3. Open **nRF Device Manager**, connect, upload `dist/juxta6-0-prod-<version>.zip`.
+   MCUboot swaps slots on reset.
+4. Hold **BTN1 ≥3 s** to leave DFU → shelf (System OFF / debugger soft-reboot).
 
 ## Companion flow
 
@@ -77,7 +109,7 @@ adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 2. Hold **BTN1** 3–10 s → slow green blink, connectable Hublink advertising
    (`JX_XXXXXX` via `bt_set_name` + scan response; Hublink UUID in ADV).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.2.0`, `memoryLevel` from NOR fill, refreshed at vitals cadence); write
+   `6.3.0`, `memoryLevel` from NOR fill, refreshed at vitals cadence); write
    **Gateway** JSON with `"timestamp": <unix>` plus optional `latitude` /
    `longitude` / `tempC` (and optional settings).
 4. Disconnect → 5× blink → production (LED off).
@@ -99,6 +131,5 @@ JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c>
 
 ## Later milestones
 
-- M3: MCUboot / SMP DFU (wire DFU — port from Juxta 5.8)
 - M4: Encounter Manager + optional CS
 - Temperature: BME688 optional; gateway `tempC` already soft-calibrates ADXL die temp

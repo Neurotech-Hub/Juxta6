@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define JUXTA_PRODUCT_NAME "Juxta6-0"
-#define JUXTA_FIRMWARE_VERSION "6.2.0"
+#define JUXTA_FIRMWARE_VERSION "6.3.0"
 /* v7: JXS gains latitude,longitude (gateway last-known / time_set). v6 kept
  * JXB/JXV day-relative sec and dropped observer/JX_ peer prefix. Companion
  * parsers update in lockstep; deployed devices need a clearMemory/format when
@@ -25,6 +25,8 @@
 
 #define MAGNET_DEBOUNCE_MS 3000U
 #define DFU_HOLD_THRESHOLD_MS 10000U
+/* Soft floor for DFU entry on CR2032 (UVLO is lower; DFU needs headroom). */
+#define BATT_DFU_MIN_MV 2700
 
 /* CR2032 UVLO: below this, refuse consequential boot / leave production. */
 #define BATT_UVLO_MV 2500

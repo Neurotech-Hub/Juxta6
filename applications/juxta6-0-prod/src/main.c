@@ -1,6 +1,7 @@
 /*
- * juxta6-0-prod M2: Juxta-style shelf / Hublink sync / dual-antenna RSSI /
- * MX25L3233 NOR CSV (JXS/JXV/JXB) with RTT mirrors. No MCUboot/CS.
+ * juxta6-0-prod: Juxta-style shelf / Hublink sync / dual-antenna RSSI /
+ * MX25L3233 NOR CSV (JXS/JXV/JXB) with RTT mirrors. MCUboot SMP BLE DFU
+ * (≥10 s magnet). No Channel Sounding.
  */
 
 #include <errno.h>
@@ -16,6 +17,7 @@
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
 #include <zephyr/net_buf.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/poweroff.h>
@@ -689,20 +691,81 @@ static int magnet_wait_hold(void)
 	return (int)(k_uptime_get() - press_ms);
 }
 
-static void run_dfu_cue(void)
+static void run_dfu_mode(void)
 {
+	int rc;
+
 	atomic_set(&app_mode, JUXTA_OP_MODE_DFU);
 	juxta_rtt_jxs("dfu_requested");
 	if (log_ctx.initialized && juxta_time_is_set()) {
 		(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name,
 					     "dfu_requested", juxta_time_now());
 	}
+
+	/* Quiet sensors before a long DFU idle (I2C / poll work). */
+	juxta_motion_stop();
+
 	blink_n(3);
-	for (int i = 0; i < 50; i++) {
+	(void)bt_le_adv_stop();
+	k_sleep(K_MSEC(20));
+
+#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
+	rc = smp_bt_register();
+	if (rc != 0 && rc != -EALREADY) {
+		LOG_ERR("DFU smp_bt_register failed: %d", rc);
+		enter_shelf("dfu_smp_fail");
+	}
+#else
+	LOG_WRN("DFU: SMP BT dynamic registration not enabled");
+#endif
+
+	{
+		struct bt_data dfu_ad[] = {
+			BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+			BT_DATA_BYTES(BT_DATA_UUID128_ALL, SMP_BT_SVC_UUID_VAL),
+		};
+		struct bt_data dfu_sd[] = {
+			BT_DATA(BT_DATA_NAME_COMPLETE, local_name, 0),
+		};
+
+		dfu_sd[0].data_len = (uint8_t)strlen(local_name);
+		rc = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, dfu_ad, ARRAY_SIZE(dfu_ad), dfu_sd,
+				     ARRAY_SIZE(dfu_sd));
+		if (rc != 0) {
+			LOG_ERR("DFU adv start failed: %d", rc);
+			enter_shelf("dfu_adv_fail");
+		}
+	}
+
+	LOG_INF("DFU mode: SMP BLE active as %s — open nRF Device Manager", local_name);
+
+	/* Magnet was just released after the ≥10 s hold; debounce before exit. */
+	for (int i = 0; i < 100; i++) {
+		prod_wdt_feed();
 		led_fast_blue_step((i % 2) == 0);
 		k_sleep(K_MSEC(50));
 	}
-	enter_shelf("dfu_exit");
+
+	LOG_INF("DFU: hold BTN1 ≥%u ms to return to shelf", MAGNET_DEBOUNCE_MS);
+	for (;;) {
+		prod_wdt_feed();
+		led_fast_blue_step(((k_uptime_get() / 50) % 2) == 0);
+		if (gpio_pin_get_dt(&button) > 0) {
+			int hold_ms = magnet_wait_hold();
+
+			leds_off();
+			if (hold_ms < (int)MAGNET_DEBOUNCE_MS) {
+				LOG_INF("DFU magnet false positive hold_ms=%d — stay in DFU",
+					hold_ms);
+				continue;
+			}
+			LOG_INF("DFU: magnet held %d ms — returning to shelf", hold_ms);
+			(void)bt_le_adv_stop();
+			k_sleep(K_MSEC(20));
+			enter_shelf("dfu_exit");
+		}
+		k_sleep(K_MSEC(50));
+	}
 }
 
 static int start_sync_adv(void)
@@ -1082,7 +1145,7 @@ int main(void)
 		 * hold. False positives loop; DFU soft-reboots back here via
 		 * enter_shelf().
 		 */
-		LOG_INF("[DBG] Simulated shelf — hold BTN1 3–10 s for sync, ≥10 s DFU cue");
+		LOG_INF("[DBG] Simulated shelf — hold BTN1 3–10 s for sync, ≥10 s DFU");
 		leds_off();
 		for (;;) {
 			held_ms = magnet_wait_hold();
@@ -1099,7 +1162,7 @@ int main(void)
 			enter_shelf("fresh_boot");
 		}
 
-		LOG_INF("System OFF wake — hold BTN1 3–10 s for sync, ≥10 s DFU cue");
+		LOG_INF("System OFF wake — hold BTN1 3–10 s for sync, ≥10 s DFU");
 		held_ms = magnet_wait_hold();
 		leds_off();
 		if (held_ms < (int)MAGNET_DEBOUNCE_MS) {
@@ -1109,7 +1172,14 @@ int main(void)
 	}
 
 	if (held_ms >= (int)DFU_HOLD_THRESHOLD_MS) {
-		run_dfu_cue();
+		int32_t batt_mv = juxta_vdd_read_mv();
+
+		if (batt_mv > 0 && batt_mv < BATT_DFU_MIN_MV) {
+			LOG_WRN("Battery too low for DFU (%d mV < %d mV) — normal sync wake",
+				(int)batt_mv, BATT_DFU_MIN_MV);
+		} else {
+			run_dfu_mode(); /* does not return */
+		}
 	}
 
 	run_sync_phase();
