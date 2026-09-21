@@ -48,11 +48,10 @@ static const struct log_region regions[] = {
 	{JUXTA_LOG_JXS, "JXS",
 	 "unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude\n",
 	 JXS_START, JXS_SIZE},
-	/* v6: JXV/JXB rows use day-relative seconds ("sec" = unix % 86400, UTC;
-	 * the calendar date is in the filename).  JXB also drops the observer
-	 * column (constant per device, in the filename) and the constant JX_
-	 * prefix on peer IDs.  JXS keeps absolute unix. v7 adds lat/lon on JXS. */
-	{JUXTA_LOG_JXV, "JXV", "sec,motion,batt_v,temp_c\n", JXV_START, JXV_SIZE},
+	/* JXV/JXB: day-relative seconds ("sec" = unix % 86400 UTC; date in
+	 * filename). JXB: no observer column; peer IDs without JX_ prefix.
+	 * JXS: absolute unix + lat/lon. JXV: BME688 temp_c + humidity (%.1f). */
+	{JUXTA_LOG_JXV, "JXV", "sec,motion,batt_v,temp_c,humidity\n", JXV_START, JXV_SIZE},
 	{JUXTA_LOG_JXB, "JXB", "sec,peer_id,rssi\n", JXB_START, JXB_SIZE},
 };
 
@@ -1276,17 +1275,31 @@ out:
 }
 
 int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, uint16_t motion,
-							int32_t batt_mv, int8_t temp_c)
+			    int32_t batt_mv, float temp_c, bool temp_ok, float humidity,
+			    bool humidity_ok)
 {
 	static char row[96];
 	int volts = batt_mv / 1000;
 	int centivolts = (batt_mv % 1000) / 10;
 	int len;
 	int rc;
+	char temp_field[16];
+	char hum_field[16];
 
 	if (!ctx)
 	{
 		return -EINVAL;
+	}
+
+	if (temp_ok) {
+		(void)snprintf(temp_field, sizeof(temp_field), "%.1f", (double)temp_c);
+	} else {
+		temp_field[0] = '\0';
+	}
+	if (humidity_ok) {
+		(void)snprintf(hum_field, sizeof(hum_field), "%.1f", (double)humidity);
+	} else {
+		hum_field[0] = '\0';
 	}
 
 	LOG_LOCK();
@@ -1303,16 +1316,16 @@ int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, u
 		goto out;
 	}
 
-	len = snprintf(row, sizeof(row), "%u,%u,%d.%02d,%d\n", DAY_RELATIVE_S(unix_time),
-				   motion, volts, centivolts, temp_c);
+	len = snprintf(row, sizeof(row), "%u,%u,%d.%02d,%s,%s\n", DAY_RELATIVE_S(unix_time),
+		       motion, volts, centivolts, temp_field, hum_field);
 	if (len < 0 || len >= (int)sizeof(row))
 	{
 		rc = -ENOSPC;
 		goto out;
 	}
 
-	LOG_INF("JXV[%u] motion=%u batt=%d.%02dV temp=%d", unix_time, motion, volts,
-			centivolts, temp_c);
+	LOG_INF("JXV[%u] motion=%u batt=%d.%02dV temp=%s humidity=%s", unix_time, motion, volts,
+		centivolts, temp_ok ? temp_field : "-", humidity_ok ? hum_field : "-");
 	rc = append_row(ctx, JUXTA_LOG_JXV, row);
 
 out:
@@ -1331,7 +1344,7 @@ int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t uni
 		return -EINVAL;
 	}
 
-	/* v6: drop the constant JX_ prefix from stored peer IDs. */
+	/* Drop the constant JX_ prefix from stored peer IDs. */
 	if (strncmp(peer_id, "JX_", 3) == 0)
 	{
 		peer_id += 3;

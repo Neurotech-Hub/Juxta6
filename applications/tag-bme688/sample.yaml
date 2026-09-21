@@ -1,0 +1,18 @@
+sample:
+  name: Tag BME688 One-shot
+  description: >
+    HIL fixture: probe BME688 (I2C 0x76), one-shot ambient temperature and
+    humidity, then suspend. BMI270 / ADXL367 left unused.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - sensor
+    - bme688
+
+tests:
+  applications.tag-bme688:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

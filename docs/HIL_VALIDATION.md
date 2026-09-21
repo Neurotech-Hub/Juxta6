@@ -32,6 +32,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 | HIL-10  | `tag-cs`          | Mobile↔mobile CS both roles              | Two tags; LED green=auto / blue=initiator / red=reflector; RTT median `distance_m` + `ifft`/`phase_slope`/`rtt`/`samples` (window=9); `quality`/`status`; BTN1 force override; record known separations (characterization gate) | 2026-09-14 | 3.3.4 |                   | pass                    | Ranging works (Nordic-style realtime RD + median window). Likely better than RSSI at short range; value of a CS connection vs adv RSSI alone unclear given code/complexity cost. |          |
 | HIL-11  | `tag-rssi-adv`    | Adv RSSI + dual RX antenna               | Same image; BTN1 advertiser(red) / scanner(blue); scanner RTT `rssi_pkt id=… seq=… rssi=… rx_ant=1\|2 …`; both antennas appear; no CS | 2026-09-14 | 3.3.4 |                   | pass                    | Both rx_ant=1 and 2 logged; ANT1 ~5 dB stronger than ANT2 in short-range capture (`data/tag-rssi.log`). |          |
 | HIL-12  | `tag-vdd`         | SAADC internal VDD (CR2032)              | RTT `vdd_mv=… batt_pct~…` idle and during brief adv; ~2.7–3.3 V on coin cell (nRF54 needs GAIN_1_4 + 0.9 V ref — not GAIN_1) | 2026-09-17 | 3.3.4 |                   | pass                    | GAIN_1_4 + 0.9 V ref |          |
+| HIL-13  | `tag-bme688`      | BME688 one-shot T + RH                   | RTT `[PROBE] bme688 ok`; `[SAMPLE] temp_c=… humidity_pct=…` (room ~15–35 °C / ~20–80 %RH); `[SUSPEND]` ok; brief green LED | 2026-09-21 | 3.3.4 |                   | pass                    |                    |          |
 
 
 
@@ -78,7 +79,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 
 | ID  | App / topic            | Intent                                                                   |
 | --- | ---------------------- | ------------------------------------------------------------------------ |
-| —   | `juxta6-0-prod` M3     | NOR CSV + Filename/File Transfer + MCUboot SMP DFU (`6.3.0`, schema v7, MX25L3233 4 MiB). See app README. Validate companion LIST/pull + clearMemory + Device Manager DFU. |
+| —   | `juxta6-0-prod` M3     | NOR CSV + Filename/File Transfer + MCUboot SMP DFU (`6.4.0`, schema v8, MX25L3233 4 MiB). See app README. Validate companion LIST/pull + clearMemory + Device Manager DFU. |
 | —   | Encounter Manager      | Qualify / arbitrate / cooldown / budget (opportunistic, not a scheduler) |
 | —   | 3-tag HIL              | Multi-peer encounter manager behavior                                    |
 | —   | Anchor profile         | Same CS layer; policy-only difference                                    |
@@ -92,7 +93,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 
 - **BTN1** (`sw0` / `P0.00`) stands in for Juxta5-8 MAG_INT (and CS role override in `tag-cs`).
 - **LED1** RGB only; LED2 footprint unused.
-- Motion path: **ADXL367** only. BMI270 / BME688 stay shut down outside their probe fixtures.
+- Motion path: **ADXL367** only. BMI270 / BME688 stay shut down outside their probe fixtures (`tag-sensors-off`, `tag-bme688`).
 - External flash **U8**: project modules use **MX25L3233F** (32 Mbit / 4 MiB); stock Nordic BOM may list MX25R6435. CS `P2.05`.
 - Identity: `JX_` + last three bytes of BLE public identity (same rule as Juxta5-8 ble-range).
 - Channel Sounding is isolated in `lib/juxta_range/`. Apps must not call Nordic CS/RAS APIs directly.

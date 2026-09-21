@@ -1,21 +1,34 @@
 # juxta6-0-prod (M3)
 
 Juxta-style firmware for nRF54L15 Tag: shelf / magnet / **Hublink GATT sync** /
-dual-antenna advertising RSSI / live ADXL+VDD vitals / **MX25L3233 NOR CSV** /
-**MCUboot SMP BLE DFU** (nRF Device Manager).
+dual-antenna advertising RSSI / ADXL motion + BME688 T/RH + VDD vitals /
+**MX25L3233 NOR CSV** / **MCUboot SMP BLE DFU** (nRF Device Manager).
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
-SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v7`** (JXV/JXB rows use
-day-relative seconds; JXB drops the observer column and the `JX_` peer prefix;
-JXS adds `latitude,longitude` from the last gateway sync. Devices upgrading
-need a `clearMemory`/format). Layout:
+SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v8`**:
+
+| File | Columns |
+|------|---------|
+| JXV | `sec,motion,batt_v,temp_c,humidity` — day-relative `sec`; `temp_c` / `humidity` from BME688 one-shot at one decimal (`22.9,39.1`); empty cells if sample fails |
+| JXB | `sec,peer_id,rssi` — no observer column; peer IDs without `JX_` prefix |
+| JXS | absolute `unix` events + `latitude,longitude` from gateway sync |
+
+## NOR layout and JXV capacity
 
 | Region | Start | Size |
 |--------|-------|------|
 | JXS | `0x000000` | 64 KB |
-| JXV | `0x010000` | 1 MB |
+| JXV | `0x010000` | **1 MB** |
 | JXB | `0x110000` | 2.875 MB |
 | Checkpoint ring | `0x3F0000` | 64 KB |
+
+**Vitals cadence** is hard-floored at **60 s** (Gateway cannot request denser). At
+60 s → **1 440 rows/day**. With `XX.X` temp + humidity (~23 B/row typical),
+JXV holds roughly **~30 days** of vitals before the region latches full; the
+file catalog (`JUXTA_MAX_FILES` = 72 ≈ 24 days × 3 types) targets a **~22-day**
+deployment with margin. Faster vitals are rejected so the 1 MiB budget stays
+valid. `memoryLevel` is the **max** fill across JXS/JXV/JXB (a full JXV reports
+nearly 100% even if JXB is empty).
 
 RTT still mirrors `JXS` / `JXB` / `JXV` for debugger bring-up. Filename / File
 Transfer are live (LIST + chunked offload). **DFU:** BTN1 ≥10 s → MCUboot SMP
@@ -27,16 +40,14 @@ to shelf). **No Channel Sounding.**
 Every POR / soft reboot waits **500 ms** (contact settle — do not remove; temporarily
 lengthened to validate reseat hypothesis). ADXL / BME / BMI / SPI NOR are
 `zephyr,deferred-init` so they are **not** probed during `POST_KERNEL`;
-`device_init()` runs only after that settle.
+`device_init()` runs only after that settle. Production vitals **resume → sample
+→ suspend** BME688 each period (motion init leaves it suspended).
 
-A single **~20 ms white LED chirp** runs in `enter_shelf()` only — covers cold
-boot→shelf, prod magnet escape, and gateway reset (debugger soft-reboot chirps
-once before reboot; no second chirp at `main`).
-
-With J-Link attached (`DCB`/`CoreDebug` `C_DEBUGEN`), System OFF is **simulated**:
-LED off while waiting for BTN1; shelf entry does a **soft reboot** instead of
-`sys_poweroff()` so RTT stays connected. Detach the debugger to exercise real
-System OFF / pin wake.
+**Shelf mode** stays awake (no System OFF): radio and motion stop, then a
+**~20 ms white LED chirp every 5 s** so the Tag is visibly waiting for a
+connection. A valid BTN1 hold (≥3 s sync, ≥10 s DFU) soft-reboots into the
+normal sync/DFU path via a `__noinit` wake handoff. Entry cue chirp covers cold
+boot→shelf, prod magnet escape, gateway reset, and DFU exit.
 
 A hardware **watchdog** (`wdt31`, 60 s) arms after bring-up and is fed from all
 long-lived loops (paused while halted by the debugger). Fatal errors reboot
@@ -58,7 +69,7 @@ samples → sticky **short red chirp** (~40 ms) / **~2 s off**. Skipped with
 debugger attached. No consequential I/O in lockout.
 
 Cold CR2032 boot: **500 ms** settle → VDD/UVLO gate → deferred `device_init`
-(ADXL/NOR/…) → antenna → `bt_enable` → shelf (one white chirp) or sync wake.
+(ADXL/NOR/…) → antenna → `bt_enable` → shelf (white chirps every 5 s).
 
 ## Production radio
 
@@ -101,35 +112,35 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
 2. Tag: 3× blink → fast blue blink; advertises SMP UUID as `JX_XXXXXX`.
 3. Open **nRF Device Manager**, connect, upload `dist/juxta6-0-prod-<version>.zip`.
    MCUboot swaps slots on reset.
-4. Hold **BTN1 ≥3 s** to leave DFU → shelf (System OFF / debugger soft-reboot).
+4. Hold **BTN1 ≥3 s** to leave DFU → shelf (white chirps every 5 s).
 
 ## Companion flow
 
-1. Power on → device shelves (System OFF), or `[DBG] Simulated shelf` with debugger.
-2. Hold **BTN1** 3–10 s → slow green blink, connectable Hublink advertising
-   (`JX_XXXXXX` via `bt_set_name` + scan response; Hublink UUID in ADV).
+1. Power on → device shelves (white chirp ~20 ms every 5 s).
+2. Hold **BTN1** 3–10 s → soft reboot → slow green blink, connectable Hublink
+   advertising (`JX_XXXXXX` via `bt_set_name` + scan response; Hublink UUID in ADV).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.3.0`, `memoryLevel` from NOR fill, refreshed at vitals cadence); write
+   `6.4.0`, `memoryLevel` from NOR fill, refreshed at vitals cadence); write
    **Gateway** JSON with `"timestamp": <unix>` plus optional `latitude` /
-   `longitude` / `tempC` (and optional settings).
+   `longitude` (and optional settings). Open-Meteo outdoor temp is display-only
+   on the phone — not sent to the tag.
 4. Disconnect → 5× blink → production (LED off).
 5. During production, hold **BTN1** ≥3 s to shelf: **red+blue** while holding,
    LEDs off at 3 s (commit) → **5× green blink** → **1 s** release debounce →
-   white chirp → System OFF / debugger soft-reboot.
+   shelf chirps resume.
 6. RTT shows `JXB` / `JXV`; companion **LIST** / pull dated `JX{S|V|B}YYYYMMDD.csv`.
 7. Gateway `clearMemory` erases CSV regions (deferred workqueue) then empty LIST.
 
-iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.x` / schema v7).
+iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.4.0` / schema v8).
 
 ## RTT line shapes
 
 ```
 JXS unix=<u> event=<name>
 JXB unix=<u> peer=JX_… rssi=<dBm>
-JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c>
+JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c> humidity=<rh>
 ```
 
 ## Later milestones
 
 - M4: Encounter Manager + optional CS
-- Temperature: BME688 optional; gateway `tempC` already soft-calibrates ADXL die temp

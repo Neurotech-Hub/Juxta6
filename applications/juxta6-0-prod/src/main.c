@@ -15,10 +15,12 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/hwinfo.h>
 #include <zephyr/drivers/watchdog.h>
+#include <zephyr/drivers/sensor.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
 #include <zephyr/net_buf.h>
+#include <zephyr/pm/device.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/poweroff.h>
 #include <zephyr/sys/reboot.h>
@@ -177,13 +179,13 @@ static void leds_off(void)
 	(void)gpio_pin_set_dt(&led_b, 0);
 }
 
-/* Brief white flash on every POR / soft reboot so cold-boot is visible without RTT. */
+/* Brief white flash (~20 ms). Used on shelf entry and periodic shelf idle. */
 static void led_boot_chirp(void)
 {
 	(void)gpio_pin_set_dt(&led_r, 1);
 	(void)gpio_pin_set_dt(&led_g, 1);
 	(void)gpio_pin_set_dt(&led_b, 1);
-	k_sleep(K_MSEC(20));
+	k_sleep(K_MSEC(SHELF_CHIRP_ON_MS));
 	leds_off();
 }
 
@@ -309,6 +311,13 @@ static bool battery_uvlo_tripped(void)
 static __noinit uint32_t init_reboot_magic;
 static __noinit uint32_t init_reboot_count;
 
+/* Shelf → sync/DFU: valid button hold survives one cold reboot into main(). */
+#define SHELF_WAKE_MAGIC 0xA11CE601U
+static __noinit uint32_t shelf_wake_magic;
+static __noinit int shelf_wake_held_ms;
+
+static int magnet_wait_hold(void);
+
 static void init_reboot_state_reset(void)
 {
 	init_reboot_magic = INIT_REBOOT_MAGIC;
@@ -433,30 +442,38 @@ static void enter_shelf(const char *reason)
 					     now);
 	}
 	(void)juxta_checkpoint_disable();
-	LOG_INF("Entering System OFF (%s)", reason != NULL ? reason : "");
+	atomic_set(&app_mode, JUXTA_OP_MODE_SHELF);
+	LOG_INF("Entering shelf (%s) — white chirp every %u s", reason != NULL ? reason : "",
+		SHELF_CHIRP_INTERVAL_MS / 1000U);
 	leds_off();
 	(void)bt_le_adv_stop();
 	(void)bt_le_scan_stop();
-	/* Stop the 100 ms ADXL poll so poweroff can't land mid-I2C-transaction. */
+	/* Stop the 100 ms ADXL poll so idle shelf isn't mid-I2C. */
 	juxta_motion_stop();
 	k_sleep(K_MSEC(100)); /* flush RTT */
 
-	/* Same alive cue for POR→shelf and prod/gateway→shelf (only chirp site). */
+	/* Entry cue, then periodic chirps while awaiting a valid button hold. */
 	led_boot_chirp();
 
-	/*
-	 * With a debugger attached, sys_poweroff() breaks SWD/RTT. Soft-reboot
-	 * instead so main() re-enters the [DBG] simulated shelf loop.
-	 */
-	if (debugger_attached()) {
-		LOG_INF("[DBG] Shelf → soft reboot (keep debugger/RTT)");
+	for (;;) {
+		int held_ms = magnet_wait_hold();
+
+		leds_off();
+		if (held_ms < (int)MAGNET_DEBOUNCE_MS) {
+			LOG_INF("Shelf false positive hold_ms=%d — stay in shelf", held_ms);
+			continue;
+		}
+
+		/*
+		 * Persist the hold across a cold reboot so main() can run the
+		 * normal sync/DFU path without nesting those modes inside shelf.
+		 */
+		shelf_wake_held_ms = held_ms;
+		shelf_wake_magic = SHELF_WAKE_MAGIC;
+		LOG_INF("Shelf wake hold_ms=%d — reboot into sync/DFU", held_ms);
 		k_sleep(K_MSEC(50));
 		sys_reboot(SYS_REBOOT_COLD);
 	}
-
-	(void)gpio_pin_interrupt_configure_dt(&button, GPIO_INT_LEVEL_ACTIVE);
-	k_sleep(K_MSEC(50));
-	sys_poweroff();
 }
 
 static int32_t battery_mv_source(void)
@@ -662,11 +679,17 @@ static struct bt_le_scan_cb scan_cb = {
 static int magnet_wait_hold(void)
 {
 	int64_t press_ms;
+	int64_t next_chirp_ms;
 	bool saw_3s = false;
 
-	/* Wait for press */
+	/* Wait for press; white chirp every 5 s so shelf stays findable. */
+	next_chirp_ms = k_uptime_get() + (int64_t)SHELF_CHIRP_INTERVAL_MS;
 	while (gpio_pin_get_dt(&button) <= 0) {
 		prod_wdt_feed();
+		if (k_uptime_get() >= next_chirp_ms) {
+			led_boot_chirp();
+			next_chirp_ms = k_uptime_get() + (int64_t)SHELF_CHIRP_INTERVAL_MS;
+		}
 		k_sleep(K_MSEC(20));
 	}
 
@@ -832,18 +855,73 @@ static void run_sync_phase(void)
 	leds_off();
 }
 
+static void bme688_oneshot(float *temp_c, bool *temp_ok, float *humidity, bool *humidity_ok)
+{
+	*temp_ok = false;
+	*humidity_ok = false;
+	*temp_c = 0.0f;
+	*humidity = 0.0f;
+
+#if DT_NODE_EXISTS(DT_NODELABEL(bme688))
+	const struct device *bme = DEVICE_DT_GET(DT_NODELABEL(bme688));
+	struct sensor_value temp;
+	struct sensor_value hum;
+	int ret;
+
+	if (!device_is_ready(bme)) {
+		LOG_WRN("bme688 not ready for vitals");
+		return;
+	}
+
+	ret = pm_device_action_run(bme, PM_DEVICE_ACTION_RESUME);
+	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP && ret != -ENOSYS) {
+		LOG_WRN("bme688 resume rc=%d", ret);
+		return;
+	}
+
+	ret = sensor_sample_fetch(bme);
+	if (ret != 0) {
+		LOG_WRN("bme688 fetch rc=%d", ret);
+		(void)pm_device_action_run(bme, PM_DEVICE_ACTION_SUSPEND);
+		return;
+	}
+
+	if (sensor_channel_get(bme, SENSOR_CHAN_AMBIENT_TEMP, &temp) == 0) {
+		*temp_c = (float)sensor_value_to_double(&temp);
+		*temp_ok = true;
+	}
+	if (sensor_channel_get(bme, SENSOR_CHAN_HUMIDITY, &hum) == 0) {
+		*humidity = (float)sensor_value_to_double(&hum);
+		*humidity_ok = true;
+	}
+
+	ret = pm_device_action_run(bme, PM_DEVICE_ACTION_SUSPEND);
+	if (ret != 0 && ret != -ENOTSUP && ret != -ENOSYS) {
+		LOG_WRN("bme688 suspend rc=%d", ret);
+	}
+#else
+	ARG_UNUSED(temp_c);
+	ARG_UNUSED(humidity);
+#endif
+}
+
 static void production_vitals(void)
 {
 	struct juxta_motion_sample m;
 	int32_t mv = juxta_vdd_read_mv();
 	int32_t batt = mv < 0 ? 0 : mv;
-	int8_t temp_i8;
+	float temp_c = 0.0f;
+	float humidity = 0.0f;
+	bool temp_ok = false;
+	bool humidity_ok = false;
 
 	juxta_motion_take(&m);
 	if (juxta_settings_get()->motion_logging == 0U) {
 		m.motion_count = 0U;
 	}
-	juxta_rtt_jxv(m.motion_count, batt, m.temp_c, m.temp_valid);
+
+	bme688_oneshot(&temp_c, &temp_ok, &humidity, &humidity_ok);
+	juxta_rtt_jxv(m.motion_count, batt, temp_c, temp_ok, humidity, humidity_ok);
 
 	/* Refresh the Node-read memory level here (main thread) — the NOR scan
 	 * must never run inline in the GATT read handler on the BT RX thread. */
@@ -878,28 +956,37 @@ static void production_vitals(void)
 		return;
 	}
 
-	if (m.temp_valid) {
-		if (m.temp_c > 127.0f) {
-			temp_i8 = 127;
-		} else if (m.temp_c < -128.0f) {
-			temp_i8 = -128;
-		} else {
-			temp_i8 = (int8_t)m.temp_c;
-		}
-	} else {
-		temp_i8 = 0;
-	}
-
 	(void)juxta_log_append_vitals(&log_ctx, juxta_time_now(), (uint16_t)m.motion_count, batt,
-				      temp_i8);
+				      temp_c, temp_ok, humidity, humidity_ok);
+}
+
+/*
+ * Stable per-device offset in [0, modulus). Tags that enter production together
+ * often share similar uptime; without stagger they scan on the same second and
+ * never hear each other (scan wins over adv when both due).
+ */
+static uint32_t prod_id_phase_s(uint32_t modulus, uint32_t salt)
+{
+	uint32_t h = salt;
+
+	if (modulus <= 1U) {
+		return 0U;
+	}
+	for (size_t i = 0U; local_name[i] != '\0'; i++) {
+		h = h * 131U + (uint8_t)local_name[i];
+	}
+	return h % modulus;
 }
 
 static void run_production(void)
 {
 	const struct juxta_settings *s;
 	int64_t next_vitals;
-	uint32_t last_scan_s = 0U;
-	uint32_t last_adv_s = 0U;
+	uint32_t last_scan_s;
+	uint32_t last_adv_s;
+	uint32_t now0;
+	uint32_t scan_phase;
+	uint32_t adv_phase;
 	struct bt_le_scan_param scan_param = {
 		.type = BT_LE_SCAN_TYPE_PASSIVE,
 		.options = BT_LE_SCAN_OPT_NONE,
@@ -919,9 +1006,13 @@ static void run_production(void)
 
 	s = juxta_settings_get();
 	next_vitals = k_uptime_get() + (int64_t)s->vitals_interval_s * 1000;
-	/* Fire first due bursts promptly (last_* starts at 0). */
-	last_scan_s = 0U;
-	last_adv_s = 0U;
+	now0 = (uint32_t)(k_uptime_get() / 1000);
+	scan_phase = (s->scan_interval_s > 0U) ? prod_id_phase_s(s->scan_interval_s, 0xA5U) : 0U;
+	adv_phase = (s->adv_interval_s > 0U) ? prod_id_phase_s(s->adv_interval_s, 0x5AU) : 0U;
+	/* First due after `phase` seconds (not synchronized across devices). */
+	last_scan_s = now0 - ((s->scan_interval_s > 0U) ? s->scan_interval_s : 0U) + scan_phase;
+	last_adv_s = now0 - ((s->adv_interval_s > 0U) ? s->adv_interval_s : 0U) + adv_phase;
+	LOG_INF("radio phase scan+%us adv+%us (id stagger)", scan_phase, adv_phase);
 
 	while ((int)atomic_get(&app_mode) == JUXTA_OP_MODE_PROD) {
 		uint32_t now_s = (uint32_t)(k_uptime_get() / 1000);
@@ -955,7 +1046,7 @@ static void run_production(void)
 
 			if (committed) {
 				blink_n(5);
-				/* Let the user release before System OFF wake-sense arms. */
+				/* Let the user release before the shelf wait loop. */
 				k_sleep(K_SECONDS(1));
 				while (gpio_pin_get_dt(&button) > 0) {
 					prod_wdt_feed();
@@ -978,15 +1069,21 @@ static void run_production(void)
 			  ((uint64_t)now_s >= (uint64_t)last_adv_s + (uint64_t)s->adv_interval_s);
 
 		if (scan_due) {
+			int scan_rc;
+
 			last_scan_s = now_s;
 			peers_clear();
 			(void)juxta_antenna_select(1);
-			(void)bt_le_scan_start(&scan_param, NULL);
-			k_sleep(K_MSEC(ANT_DWELL_MS));
-			(void)juxta_antenna_select(2);
-			k_sleep(K_MSEC(ANT_DWELL_MS));
-			(void)bt_le_scan_stop();
-			peers_flush_jxb();
+			scan_rc = bt_le_scan_start(&scan_param, NULL);
+			if (scan_rc != 0) {
+				LOG_WRN("scan start rc=%d", scan_rc);
+			} else {
+				k_sleep(K_MSEC(ANT_DWELL_MS));
+				(void)juxta_antenna_select(2);
+				k_sleep(K_MSEC(ANT_DWELL_MS));
+				(void)bt_le_scan_stop();
+				peers_flush_jxb();
+			}
 		} else if (adv_due) {
 			last_adv_s = now_s;
 			(void)juxta_antenna_select(1);
@@ -1139,36 +1236,16 @@ int main(void)
 
 	int held_ms;
 
-	if (debugger_attached()) {
-		/*
-		 * Debug simulation: stay awake, LED off = shelf, wait for BTN1
-		 * hold. False positives loop; DFU soft-reboots back here via
-		 * enter_shelf().
-		 */
-		LOG_INF("[DBG] Simulated shelf — hold BTN1 3–10 s for sync, ≥10 s DFU");
-		leds_off();
-		for (;;) {
-			held_ms = magnet_wait_hold();
-			leds_off();
-			if (held_ms < (int)MAGNET_DEBOUNCE_MS) {
-				LOG_INF("[DBG] False positive hold_ms=%d — stay in shelf", held_ms);
-				continue;
-			}
-			break;
-		}
+	if (shelf_wake_magic == SHELF_WAKE_MAGIC) {
+		held_ms = shelf_wake_held_ms;
+		shelf_wake_magic = 0U;
+		shelf_wake_held_ms = 0;
+		LOG_INF("Shelf wake resume hold_ms=%d", held_ms);
 	} else {
-		/* Fresh boot / non-OFF wake → real System OFF */
-		if ((cause & RESET_LOW_POWER_WAKE) == 0U) {
-			enter_shelf("fresh_boot");
-		}
-
-		LOG_INF("System OFF wake — hold BTN1 3–10 s for sync, ≥10 s DFU");
-		held_ms = magnet_wait_hold();
-		leds_off();
-		if (held_ms < (int)MAGNET_DEBOUNCE_MS) {
-			LOG_INF("False positive hold_ms=%d", held_ms);
-			enter_shelf("false_positive");
-		}
+		/* Fresh boot / return from production / DFU — idle shelf with chirps. */
+		enter_shelf((cause & RESET_LOW_POWER_WAKE) != 0U ? "lp_wake" : "boot");
+		/* enter_shelf does not return */
+		return 0;
 	}
 
 	if (held_ms >= (int)DFU_HOLD_THRESHOLD_MS) {

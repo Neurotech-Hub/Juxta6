@@ -22,8 +22,8 @@ struct HublinkUUIDs {
 }
 
 // MARK: - Gateway location + Open-Meteo ambient °C
-/// Continuous location (~10 s) for the clock subtitle and Tag sync; ambient °C
-/// once per app session plus hourly refresh while the app stays open.
+/// Continuous location (~10 s) for the clock subtitle and Tag sync; outdoor °C
+/// once per app session plus hourly refresh for the clock subtitle only.
 final class GatewayLocationHelper: NSObject, CLLocationManagerDelegate {
     static let shared = GatewayLocationHelper()
 
@@ -789,17 +789,17 @@ class AppState: ObservableObject {
     }
 
     static func formatGatewayContext(lat: Double?, lon: Double?, tempC: Double?) -> String {
-        var parts: [String] = []
+        // Location only; outdoor °C/°F is rendered with an icon in clockView.
+        _ = tempC
         if let lat, let lon {
-            parts.append(String(format: "%.4f, %.4f", lat, lon))
-        } else {
-            parts.append("Location unavailable")
+            return String(format: "%.4f, %.4f", lat, lon)
         }
-        if let tempC {
-            let tempF = tempC * 9.0 / 5.0 + 32.0
-            parts.append(String(format: "%.0f°C / %.0f°F", tempC, tempF))
-        }
-        return parts.joined(separator: " · ")
+        return "Location unavailable"
+    }
+
+    static func formatOutdoorTemp(tempC: Double) -> String {
+        let tempF = tempC * 9.0 / 5.0 + 32.0
+        return String(format: "%.0f°C / %.0f°F", tempC, tempF)
     }
 }
 
@@ -900,8 +900,8 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     private func sendTimestampAndFilenamesRequest() {
-        // Use the continuously refreshed gateway context (location ~10 s, temp
-        // session/hourly) — no blocking location/weather wait on the BLE path.
+        // Use the continuously refreshed gateway location (~10 s) — no blocking
+        // location wait on the BLE path. Outdoor temp is display-only (not sent).
         var payload: [String: Any] = [
             "timestamp": Int(Date().timeIntervalSince1970),
             "sendFilenames": true,
@@ -909,9 +909,6 @@ class BLEManager: NSObject, ObservableObject {
         if let lat = appState.lastLatitude, let lon = appState.lastLongitude {
             payload["latitude"] = lat
             payload["longitude"] = lon
-        }
-        if let tempC = appState.lastTempC {
-            payload["tempC"] = tempC
         }
         writeGatewayJSONObject(payload)
     }
@@ -1796,11 +1793,27 @@ struct ContentView: View {
                             .foregroundColor(.primary)
                     }
                 }
-                Text(appState.gatewayContextLine)
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                HStack(spacing: 4) {
+                    Text(appState.gatewayContextLine)
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    if let tempC = appState.lastTempC {
+                        Text("·")
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        Image(systemName: "cloud.sun")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .accessibilityLabel("Outdoor temperature")
+                        Text(AppState.formatOutdoorTemp(tempC: tempC))
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
             }
             Spacer()
             
@@ -1848,15 +1861,19 @@ struct ContentView: View {
                         .background(
                             LinearGradient(
                                 colors: [
-                                    Color(red: 0.42, green: 0.05, blue: 0.68), // Deep purple ~#6A0DAD
-                                    Color(red: 1.0, green: 0.0, blue: 1.0)     // Vibrant fuchsia ~#FF00FF
+                                    Color(red: 0.145, green: 0.388, blue: 0.922), // Royal Blue #2563EB
+                                    Color(red: 0.545, green: 0.361, blue: 0.965), // Violet #8B5CF6
+                                    Color(red: 0.925, green: 0.051, blue: 0.851)  // Magenta #EC0DD9
                                 ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                        .shadow(
+                            color: Color(red: 0.545, green: 0.361, blue: 0.965).opacity(0.35),
+                            radius: 8, x: 0, y: 4
+                        )
                 }
             }
         }
@@ -2061,7 +2078,7 @@ struct ContentView: View {
                 bleManager.resetToShelfMode()
             }
         } message: {
-            Text("This will reset the device to shelf mode. The device will restart and return to its default state.")
+            Text("This will reset the device to shelf mode. The device will restart, return to its default state, and chirp the white LED every 5 s until you connect again.")
         }
         .onChange(of: appState.isConnected) { _, connected in
             if !connected {
@@ -2824,7 +2841,7 @@ struct VitalsRow: Identifiable {
     let date: Date
     let battV: Double?
     let tempC: Double?
-    let lux: Double?
+    let humidity: Double?
     let motion: Double?
 }
 
@@ -2864,7 +2881,7 @@ private func trimCsvCell(_ raw: Substring) -> String {
     return s
 }
 
-/// Reconstruct absolute UTC `Date` from package day key (`YYYYMMDD`) + seconds since that day's UTC midnight (schema jxta-nor-csv-v6).
+/// Reconstruct absolute UTC `Date` from package day key (`YYYYMMDD`) + seconds since that day's UTC midnight (schema jxta-nor-csv-v8).
 private func dateFromUTCDayKey(_ dateKey: String, sec: Int) -> Date? {
     guard dateKey.count == 8, dateKey.allSatisfy({ $0.isNumber }) else { return nil }
     guard let y = Int(dateKey.prefix(4)),
@@ -3025,7 +3042,7 @@ private func readFullFileText(at url: URL) -> String? {
 }
 
 private func vitalsRow(from cols: [String], map: CsvColumnMap, id: Int, dateKey: String) -> VitalsRow? {
-    // JXV (jxta-nor-csv-v6): sec,motion,batt_v,temp_c
+    // JXV (jxta-nor-csv-v8): sec,motion,batt_v,temp_c,humidity
     guard let secIdx = map.index(of: "sec"), secIdx < cols.count,
           let sec = parseCsvInt(cols[secIdx]),
           let date = dateFromUTCDayKey(dateKey, sec: sec) else { return nil }
@@ -3038,13 +3055,13 @@ private func vitalsRow(from cols: [String], map: CsvColumnMap, id: Int, dateKey:
         date: date,
         battV: parseCsvDouble(col("batt_v")),
         tempC: parseCsvDouble(col("temp_c")),
-        lux: parseCsvDouble(col("lux")),
+        humidity: parseCsvDouble(col("humidity")),
         motion: parseCsvDouble(col("motion"))
     )
 }
 
 private func bleRow(from cols: [String], map: CsvColumnMap, id: Int, dateKey: String) -> BLERow? {
-    // JXB (jxta-nor-csv-v6): sec,peer_id,rssi
+    // JXB (jxta-nor-csv-v8): sec,peer_id,rssi
     guard let secIdx = map.index(of: "sec"), secIdx < cols.count,
           let sec = parseCsvInt(cols[secIdx]),
           let date = dateFromUTCDayKey(dateKey, sec: sec) else { return nil }
@@ -3216,29 +3233,51 @@ struct PlotsView: View {
                 }
             }
         }
-        chartCard(title: "Temperature (°C)") {
-            Chart {
-                ForEach(vitalsRows) { row in
-                    if let t = row.tempC {
-                        LineMark(
-                            x: .value("Time", row.date),
-                            y: .value("Temp", t)
-                        )
+        chartCard(title: "Temperature (°C) & Humidity (%)") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.orange).frame(width: 8, height: 8)
+                        Text("Temp °C").font(.caption2).foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.cyan).frame(width: 8, height: 8)
+                        Text("Humidity %").font(.caption2).foregroundColor(.secondary)
                     }
                 }
-            }
-        }
-        if vitalsRows.contains(where: { $0.lux != nil }) {
-            chartCard(title: "Lux") {
-                Chart {
-                    ForEach(vitalsRows) { row in
-                        if let lux = row.lux {
-                            LineMark(
-                                x: .value("Time", row.date),
-                                y: .value("Lux", lux)
-                            )
+                ZStack {
+                    Chart {
+                        ForEach(vitalsRows) { row in
+                            if let t = row.tempC {
+                                LineMark(
+                                    x: .value("Time", row.date),
+                                    y: .value("Temp", t)
+                                )
+                                .foregroundStyle(Color.orange)
+                            }
                         }
                     }
+                    .chartYAxis {
+                        AxisMarks(position: .leading)
+                    }
+
+                    Chart {
+                        ForEach(vitalsRows) { row in
+                            if let h = row.humidity {
+                                LineMark(
+                                    x: .value("Time", row.date),
+                                    y: .value("Humidity", h)
+                                )
+                                .foregroundStyle(Color.cyan)
+                            }
+                        }
+                    }
+                    .chartYScale(domain: 0...100)
+                    .chartYAxis {
+                        AxisMarks(position: .trailing)
+                    }
+                    .chartXAxis(.hidden)
+                    .allowsHitTesting(false)
                 }
             }
         }
@@ -3445,7 +3484,7 @@ private enum AppVersionInfo {
     }
 }
 
-private struct MagnetGestureRow: Identifiable {
+private struct ButtonGestureRow: Identifiable {
     let id: String
     let gesture: String
     let ledFeedback: String
@@ -3458,63 +3497,68 @@ private struct MagnetGestureRow: Identifiable {
         self.effect = effect
     }
 
-    static let reference: [MagnetGestureRow] = [
-        MagnetGestureRow(
-            gesture: "Apply at any time (device in shelf mode)",
+    static let reference: [ButtonGestureRow] = [
+        ButtonGestureRow(
+            gesture: "Idle in shelf mode (no button press)",
+            ledFeedback: "White chirp ~20 ms every 5 s",
+            effect: "Needs connection indicator; radio off; waiting for a valid button hold"
+        ),
+        ButtonGestureRow(
+            gesture: "Press while in shelf mode",
             ledFeedback: "LED ON immediately",
-            effect: "Wakes device from System OFF → cold boot"
+            effect: "Starts hold timing; release after the commit cue to leave shelf"
         ),
-        MagnetGestureRow(
-            gesture: "Release < 3 s after cold boot",
-            ledFeedback: "LED off on release",
-            effect: "False positive — re-arms shelf; no datetime sync or DFU; no JXS write"
+        ButtonGestureRow(
+            gesture: "Release < 3 s while in shelf",
+            ledFeedback: "LED off on release; chirps resume",
+            effect: "False positive — stays in shelf; no datetime sync or DFU; no JXS write"
         ),
-        MagnetGestureRow(
-            gesture: "Release 3 s ≤ t < 10 s after cold boot",
-            ledFeedback: "LED off at 3 s → slow blink (50/450 ms)",
+        ButtonGestureRow(
+            gesture: "Release 3 s ≤ t < 10 s while in shelf",
+            ledFeedback: "LED off at 3 s → soft reboot → slow blink (50/450 ms)",
             effect: "Connectable advertising; waits for time sync. JXS shelf_exit, user_connected, time_set deferred until sync"
         ),
-        MagnetGestureRow(
-            gesture: "Hold ≥ 10 s after cold boot",
-            ledFeedback: "LED off at 3 s → 3× blink → fast blink (50/50 ms)",
+        ButtonGestureRow(
+            gesture: "Hold ≥ 10 s while in shelf",
+            ledFeedback: "LED off at 3 s → soft reboot → 3× blink → fast blink (50/50 ms)",
             effect: "DFU mode; confirmed 3 s hold returns to shelf after 5 s debounce"
         ),
-        MagnetGestureRow(
+        ButtonGestureRow(
             gesture: "Any connect event",
             ledFeedback: "Solid ON",
             effect: "Active BLE connection (user_connected in JXS once clock is valid)"
         ),
-        MagnetGestureRow(
+        ButtonGestureRow(
             gesture: "Disconnect after valid timestamp",
             ledFeedback: "5× blink → LED off",
             effect: "Production begins (LED off). JXS user_disconnected then boot"
         ),
-        MagnetGestureRow(
+        ButtonGestureRow(
             gesture: "Disconnect without timestamp",
             ledFeedback: "Slow blink resumes",
             effect: "Restarts connectable advertising"
         ),
-        MagnetGestureRow(
-            gesture: "Brief magnet during DFU fast-blink (< 3 s)",
+        ButtonGestureRow(
+            gesture: "Brief press during DFU fast-blink (< 3 s)",
             ledFeedback: "None",
             effect: "False positive — stays in DFU"
         ),
-        MagnetGestureRow(
-            gesture: "Confirmed magnet hold ≥ 3 s during DFU",
+        ButtonGestureRow(
+            gesture: "Confirmed hold ≥ 3 s during DFU",
             ledFeedback: "LED off",
             effect: "Returns device to shelf mode"
         ),
-        MagnetGestureRow(
-            gesture: "Brief magnet during production (< 3 s)",
-            ledFeedback: "LED ON on apply → off on release",
+        ButtonGestureRow(
+            gesture: "Brief press during production (< 3 s)",
+            ledFeedback: "LED ON on press → off on release",
             effect: "False positive — production continues"
         ),
-        MagnetGestureRow(
-            gesture: "Confirmed magnet ≥ 3 s during production",
-            ledFeedback: "LED ON → off at 3 s → 5× blink",
+        ButtonGestureRow(
+            gesture: "Confirmed hold ≥ 3 s during production",
+            ledFeedback: "LED ON → off at 3 s → 5× blink → white chirps resume",
             effect: "Release after commit cue; 5 s debounce then shelf mode; appends shelf_entry to JXS"
         ),
-        MagnetGestureRow(
+        ButtonGestureRow(
             gesture: "NOR or accelerometer init failure",
             ledFeedback: "Long blink (1 s / 1 s)",
             effect: "Fault loop; no production operation"
@@ -3524,13 +3568,14 @@ private struct MagnetGestureRow: Identifiable {
 
 struct InfoAboutView: View {
     private static let quickStartSteps: [String] = [
-        "Shelf mode is the default: ultra-low-power System OFF — no LED, no radio. A magnet is the only way to wake.",
-        "Hold a magnet ~3 s to wake: LED solid ON on apply, off at 3 s as a \"release now\" cue, then slow blink (50 ms on / 450 ms off). Holds under 3 s are rejected as false positives.",
+        "Shelf mode is the default after boot or a companion Reset: radio off, white LED chirps ~20 ms every 5 s so you can tell the Tag still needs a connection.",
+        "Hold the button ~3 s to leave shelf: LED solid ON on press, off at 3 s as a \"release now\" cue, then a soft reboot into sync (slow blink 50 ms on / 450 ms off). Holds under 3 s are false positives and chirps resume.",
         "In Juxta6, scan and connect. The LED stays solid ON for the duration of the BLE connection.",
         "Time sync runs automatically; device settings populate the app. Tap Edit to change them, then Push to send changes back.",
         "Disconnect to enter production: 5× blink, LED off, then vitals/logging run with LED off throughout.",
-        "Return to shelf during production with a ~3 s magnet hold: solid ON → off at 3 s → 5× blink → grace period → one confirmation blink → System OFF. A shelf_entry row is written to JXS.",
-        "Hold ≥ 10 s only to enter DFU: LED off at 3 s, then 3× blink and fast blink at 10 s. Release between 3 s and 10 s if you only want to wake, not update firmware."
+        "Return to shelf during production with a ~3 s button hold: solid ON → off at 3 s → 5× blink → grace period → shelf chirps resume. A shelf_entry row is written to JXS.",
+        "Hold ≥ 10 s only to enter DFU: LED off at 3 s, then soft reboot into 3× blink and fast blink. Release between 3 s and 10 s if you only want sync, not firmware update.",
+        "For a full device reset, reseat or replace the battery (coin cell)."
     ]
 
     var body: some View {
@@ -3548,7 +3593,7 @@ struct InfoAboutView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Quick start")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("End-to-end flow in Juxta6. Magnet timing is enforced by firmware (3 s minimum hold, 10 s for DFU) — see Magnet gestures below.")
+                    Text("End-to-end flow in Juxta6. Button timing is enforced by firmware (3 s minimum hold, 10 s for DFU) — see Button gestures below.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3574,9 +3619,9 @@ struct InfoAboutView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Magnet gestures & LED feedback")
+                    Text("Button gestures & LED feedback")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Every magnet gesture requires a confirmed 3 s minimum hold; shorter touches are false positives. At 3 s the LED turns off as a \"release now\" commit cue on wake and production paths. DFU requires a 10 s hold.")
+                    Text("In shelf mode the white LED chirps ~20 ms every 5 s until a valid hold. Every button gesture requires a confirmed 3 s minimum hold; shorter presses are false positives. At 3 s the LED turns off as a \"release now\" commit cue on shelf wake and production paths. DFU requires a 10 s hold. A full device reset is performed by reseating or replacing the battery.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3593,7 +3638,7 @@ struct InfoAboutView: View {
 
                         Divider()
 
-                        ForEach(Array(MagnetGestureRow.reference.enumerated()), id: \.element.id) { index, row in
+                        ForEach(Array(ButtonGestureRow.reference.enumerated()), id: \.element.id) { index, row in
                             HStack(alignment: .top, spacing: 8) {
                                 gestureBodyCell(row.gesture)
                                 gestureBodyCell(row.ledFeedback)
@@ -3601,7 +3646,7 @@ struct InfoAboutView: View {
                             }
                             .padding(.vertical, 8)
                             .padding(.horizontal, 10)
-                            if index < MagnetGestureRow.reference.count - 1 {
+                            if index < ButtonGestureRow.reference.count - 1 {
                                 Divider()
                             }
                         }
@@ -3634,7 +3679,7 @@ struct InfoAboutView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Firmware update (DFU)")
                         .font(.system(size: 13, weight: .semibold))
-                    (Text("DFU mode is entered with a ≥ 10 s magnet hold (see gestures above). Once in DFU, use Nordic Semiconductor's ")
+                    (Text("DFU mode is entered with a ≥ 10 s button hold (see gestures above). Once in DFU, use Nordic Semiconductor's ")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                      + Text("nRF Device Manager")
@@ -3691,7 +3736,7 @@ struct TerminalTabView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(appState.terminalLog.enumerated()), id: \.offset) { index, line in
+                    ForEach(Array(appState.terminalLog.enumerated().reversed()), id: \.offset) { index, line in
                         Text(line)
                             .font(.system(.caption, design: .monospaced))
                             .foregroundColor(.green)
@@ -3705,15 +3750,16 @@ struct TerminalTabView: View {
             }
             .background(Color.black)
             .onChange(of: appState.terminalLog.count) { _, _ in
-                if let lastIndex = appState.terminalLog.indices.last {
+                // Newest entry is last in the array and first visually (reversed ForEach).
+                if let newestIndex = appState.terminalLog.indices.last {
                     withAnimation(.easeOut(duration: 0.1)) {
-                        proxy.scrollTo(lastIndex, anchor: .bottom)
+                        proxy.scrollTo(newestIndex, anchor: .top)
                     }
                 }
             }
             .onAppear {
-                if let lastIndex = appState.terminalLog.indices.last {
-                    proxy.scrollTo(lastIndex, anchor: .bottom)
+                if let newestIndex = appState.terminalLog.indices.last {
+                    proxy.scrollTo(newestIndex, anchor: .top)
                 }
             }
         }
@@ -3740,7 +3786,8 @@ struct TerminalTabView: View {
     }
 
     private func copyLog() {
-        let joined = appState.terminalLog.joined(separator: "\n")
+        // Match on-screen order (newest first).
+        let joined = appState.terminalLog.reversed().joined(separator: "\n")
         UIPasteboard.general.string = joined
         copyConfirmation = "Copied"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {

@@ -4,13 +4,12 @@
 #include <stdint.h>
 
 #define JUXTA_PRODUCT_NAME "Juxta6-0"
-#define JUXTA_FIRMWARE_VERSION "6.3.0"
-/* v7: JXS gains latitude,longitude (gateway last-known / time_set). v6 kept
- * JXB/JXV day-relative sec and dropped observer/JX_ peer prefix. Companion
- * parsers update in lockstep; deployed devices need a clearMemory/format when
- * upgrading (see release notes). */
-#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v7"
-#define JUXTA_LOGGING_VERSION 7
+#define JUXTA_FIRMWARE_VERSION "6.4.0"
+/* v8: JXV temp_c + humidity from BME688 one-shot (one decimal); vitals
+ * interval floor 60 s. JXS has latitude,longitude; JXB/JXV use day-relative
+ * sec; JXB drops observer / JX_ peer prefix. */
+#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v8"
+#define JUXTA_LOGGING_VERSION 8
 
 #define JUXTA_DEVICE_ID_LEN 10
 #define JUXTA_SUBJECT_ID_LEN 32
@@ -19,6 +18,7 @@
 #define JUXTA_DEFAULT_SCAN_INTERVAL_S 30U /* cadence between 1 s scan bursts */
 #define JUXTA_DEFAULT_ADV_INTERVAL_S 5U   /* cadence between 1 s adv bursts */
 #define JUXTA_DEFAULT_VITALS_INTERVAL_S 60U
+#define JUXTA_MIN_VITALS_INTERVAL_S 60U /* hard floor — never denser than 1/min */
 #define JUXTA_MAX_BLE_INTERVAL_S 120U
 #define JUXTA_DEFAULT_INACTIVITY_MULTIPLIER 1U
 #define JUXTA_MAX_INACTIVITY_MULTIPLIER 10U
@@ -27,6 +27,10 @@
 #define DFU_HOLD_THRESHOLD_MS 10000U
 /* Soft floor for DFU entry on CR2032 (UVLO is lower; DFU needs headroom). */
 #define BATT_DFU_MIN_MV 2700
+
+/* Shelf idle: brief white LED cue while awaiting a button wake. */
+#define SHELF_CHIRP_INTERVAL_MS 5000U
+#define SHELF_CHIRP_ON_MS 20U
 
 /* CR2032 UVLO: below this, refuse consequential boot / leave production. */
 #define BATT_UVLO_MV 2500

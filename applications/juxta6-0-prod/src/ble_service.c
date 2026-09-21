@@ -21,7 +21,6 @@
 #include "juxta_settings.h"
 #include "juxta_time.h"
 #include "juxta_vdd.h"
-#include "juxta_motion.h"
 
 LOG_MODULE_REGISTER(juxta_ble_service, LOG_LEVEL_INF);
 
@@ -543,7 +542,6 @@ static int apply_gateway_command(const char *json)
 	bool this_loc_valid = false;
 	float this_lat = 0.0f;
 	float this_lon = 0.0f;
-	double dval;
 
 	(void)juxta_ble_get_device_id(device_id);
 
@@ -564,12 +562,6 @@ static int apply_gateway_command(const char *json)
 			changed = true;
 			LOG_INF("gateway location lat=%.6f lon=%.6f", lat_d, lon_d);
 		}
-	}
-
-	if (extract_f64(json, "tempC", &dval) == 0)
-	{
-		juxta_motion_set_temp_offset_c((float)dval);
-		LOG_INF("gateway tempC=%.2f", dval);
 	}
 
 	if (extract_u32(json, "timestamp", &value) == 0 && value == 0U)
@@ -615,8 +607,8 @@ static int apply_gateway_command(const char *json)
 
 	if (extract_bool_true(json, "reset"))
 	{
-		/* Disconnect BLE and enter shelf mode (System OFF in production,
-		 * soft reboot in debug).  Implemented in main.c. */
+		/* Disconnect BLE and enter shelf mode (periodic white chirp).
+		 * Implemented in main.c. */
 		LOG_INF("reset: entering shelf mode on request");
 		juxta_ble_reset_requested(); /* does not return */
 	}
@@ -662,6 +654,9 @@ static int apply_gateway_command(const char *json)
 	if (extract_u32(json, "vitalsInterval", &value) == 0 && value > 0U &&
 		value <= UINT16_MAX)
 	{
+		if (value < JUXTA_MIN_VITALS_INTERVAL_S) {
+			value = JUXTA_MIN_VITALS_INTERVAL_S;
+		}
 		next.vitals_interval_s = (uint16_t)value;
 		changed = true;
 	}

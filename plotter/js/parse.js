@@ -1,7 +1,7 @@
 /* CSV ingest, merge, and validation, plus shared timezone helpers.
- * Juxta6 schema jxta-nor-csv-v7: JXV/JXB use day-relative `sec` (date in
- * filename); JXS keeps absolute `unix` plus optional latitude/longitude.
- * Downstream plots/summary use unix. */
+ * Juxta6 schema jxta-nor-csv-v8: JXV/JXB use day-relative `sec` (date in
+ * filename); JXV includes BME688 temp_c + humidity; JXS keeps absolute `unix`
+ * plus optional latitude/longitude. Downstream plots/summary use unix. */
 
 const TZ_ABBR = {
   "America/Chicago": "CT",
@@ -147,17 +147,17 @@ async function ingestFiles(files) {
       continue;
     }
 
-    // JXV / JXB — schema v6 day-relative sec
+    // JXV / JXB — day-relative sec
     const dateKey = dateKeyFromFilename(file.name);
     if (!dateKey) {
       warnings.push(
-        `Skipped "${file.name}" — expected JX{S|V|B}YYYYMMDD.csv for schema v7.`
+        `Skipped "${file.name}" — expected JX{S|V|B}YYYYMMDD.csv for schema v8.`
       );
       continue;
     }
 
     const numericCols = type === "jxv"
-      ? ["motion", "batt_v", "temp_c"]
+      ? ["motion", "batt_v", "temp_c", "humidity"]
       : ["rssi"];
     const { rows: normalized, dropped } = normalizeDayRelative(rows, dateKey, numericCols);
     if (dropped > 0) {

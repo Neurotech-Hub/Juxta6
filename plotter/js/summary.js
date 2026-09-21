@@ -1,4 +1,4 @@
-/* Experiment summary: builds shareable plain text shown on screen and copied to clipboard. */
+/* Compact summary cards + shareable plain-text copy. */
 
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);
@@ -6,65 +6,142 @@ function formatDuration(seconds) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function buildSummaryText(data, tz) {
-  const { jxv, jxb, jxs, deviceId } = data;
+function parseCoord(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Latest JXS row with both latitude and longitude. */
+function findLastLocation(jxs) {
+  if (!jxs || jxs.length === 0) return null;
+  let best = null;
+  for (const r of jxs) {
+    const lat = parseCoord(r.latitude);
+    const lon = parseCoord(r.longitude);
+    if (lat == null || lon == null) continue;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
+    if (!best || r.unix >= best.unix) {
+      best = { lat, lon, unix: r.unix, event: r.event || "" };
+    }
+  }
+  return best;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function collectSummaryMetrics(data, tz) {
+  const { jxv, jxb, jxs } = data;
   const abbr = TZ_ABBR[tz];
-  const lines = [];
+  const cards = [];
 
-  lines.push(`Device: ${deviceId || "unknown"}`);
-
-  // Duration matches the plots' x-axis timeline (JXV + JXB only)
   const allUnix = [...jxv, ...jxb].map((r) => r.unix);
   if (allUnix.length > 0) {
     const start = Math.min(...allUnix);
     const end = Math.max(...allUnix);
-    const startStr = formatUnix(start, tz, { second: undefined });
-    const endStr = formatUnix(end, tz, { second: undefined });
-    lines.push(`Duration: ${startStr} – ${endStr} ${abbr} (${formatDuration(end - start)})`);
+    const startStr = `${formatUnix(start, tz, { second: undefined })} ${abbr}`;
+    const endStr = `${formatUnix(end, tz, { second: undefined })} ${abbr}`;
+    cards.push({
+      label: "Duration",
+      value: formatDuration(end - start),
+      copyLines: [`Duration: ${formatDuration(end - start)}`, `Start: ${startStr}`, `End: ${endStr}`],
+      bodyHtml: `
+        <div class="metric-time metric-time-start">${escapeHtml(startStr)}</div>
+        <div class="metric-time metric-time-end">${escapeHtml(endStr)}</div>`,
+    });
   }
 
-  if (jxv.length > 0) {
-    const first = jxv[0].batt_v;
-    const last = jxv[jxv.length - 1].batt_v;
-    const delta = last - first;
-    const sign = delta >= 0 ? "+" : "−";
-    lines.push(`Battery: ${first.toFixed(2)} V → ${last.toFixed(2)} V (${sign}${Math.abs(delta).toFixed(2)} V)`);
+  const temps = jxv.map((r) => r.temp_c).filter((t) => Number.isFinite(t));
+  const hums = jxv.map((r) => r.humidity).filter((h) => Number.isFinite(h));
+  if (temps.length > 0 || hums.length > 0) {
+    const tempLine =
+      temps.length > 0
+        ? `${Math.min(...temps).toFixed(1)}–${Math.max(...temps).toFixed(1)} °C`
+        : "—";
+    const humLine =
+      hums.length > 0
+        ? `${Math.min(...hums).toFixed(1)}–${Math.max(...hums).toFixed(1)} %`
+        : "—";
+    cards.push({
+      label: "Environment",
+      value: "",
+      copyLines: [
+        temps.length > 0 ? `Temp: ${tempLine}` : null,
+        hums.length > 0 ? `Humidity: ${humLine}` : null,
+      ].filter(Boolean),
+      bodyHtml: `
+        <div class="metric-row"><span class="metric-k">Temp</span><span class="metric-v">${escapeHtml(tempLine)}</span></div>
+        <div class="metric-row"><span class="metric-k">Humidity</span><span class="metric-v">${escapeHtml(humLine)}</span></div>`,
+    });
   }
 
-  if (jxb.length > 0) {
-    const counts = new Map();
-    for (const r of jxb) counts.set(r.peer_id, (counts.get(r.peer_id) || 0) + 1);
-    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-    const list = sorted.map(([id, n]) => `${id} (${n})`).join(", ");
-    lines.push(`Peers (${sorted.length}): ${list}`);
+  const motions = jxv.map((r) => r.motion).filter((m) => Number.isFinite(m));
+  const peerIds = new Set(jxb.map((r) => r.peer_id).filter(Boolean));
+  if (motions.length > 0 || peerIds.size > 0) {
+    let motionMain = "—";
+    if (motions.length > 0) {
+      const activePct = (100 * motions.filter((m) => m > 0).length) / motions.length;
+      motionMain = `${activePct.toFixed(1)}% Active`;
+    }
+    const peerMain = peerIds.size > 0 ? String(peerIds.size) : "—";
+    cards.push({
+      label: "Action",
+      value: "",
+      copyLines: [
+        motions.length > 0 ? `Motion: ${motionMain}` : null,
+        peerIds.size > 0 ? `Peers: ${peerMain}` : null,
+      ].filter(Boolean),
+      bodyHtml: `
+        <div class="metric-row"><span class="metric-k">Motion</span><span class="metric-v">${escapeHtml(motionMain)}</span></div>
+        <div class="metric-row"><span class="metric-k">Peers</span><span class="metric-v">${escapeHtml(peerMain)}</span></div>`,
+    });
   }
 
   const fw = [...jxs].reverse().find((r) => r.fw_version)?.fw_version;
-  if (fw) lines.push(`FW: ${fw}`);
-
-  if (jxv.length > 0) {
-    const motions = jxv.map((r) => r.motion);
-    const total = motions.reduce((a, b) => a + b, 0);
-    const peak = Math.max(...motions);
-    const activePct = Math.round(100 * motions.filter((m) => m > 0).length / motions.length);
-    lines.push(`Motion: total ${total.toLocaleString()}, peak ${peak}, active ${activePct}%`);
-
-    const temps = jxv.map((r) => r.temp_c);
-    lines.push(`Temp: ${Math.min(...temps)}–${Math.max(...temps)} °C`);
+  if (fw) {
+    cards.push({
+      label: "Firmware",
+      value: fw,
+      copyLines: [`Firmware: ${fw}`],
+      bodyHtml: "",
+    });
   }
 
-  if (jxs.length > 0) {
-    const counts = new Map();
-    for (const r of jxs) counts.set(r.event, (counts.get(r.event) || 0) + 1);
-    const list = [...counts.entries()].map(([ev, n]) => `${ev} (${n})`).join(", ");
-    lines.push(`Events: ${list}`);
-  }
+  return cards;
+}
 
-  return lines.join("\n");
+function buildSummaryText(data, tz) {
+  return collectSummaryMetrics(data, tz)
+    .flatMap((c) => c.copyLines || [])
+    .join("\n");
 }
 
 function renderSummary(data, tz) {
-  document.getElementById("summary-text").textContent = buildSummaryText(data, tz);
+  const grid = document.getElementById("summary-grid");
+  const cards = collectSummaryMetrics(data, tz);
+  if (cards.length === 0) {
+    grid.innerHTML = '<p class="empty-note">No summary metrics in this package.</p>';
+    return;
+  }
+  grid.innerHTML = cards
+    .map((c) => {
+      const valueHtml = c.value
+        ? `<div class="metric-value">${escapeHtml(c.value)}</div>`
+        : "";
+      return `
+    <div class="metric-card">
+      <div class="metric-label">${escapeHtml(c.label)}</div>
+      ${valueHtml}
+      ${c.bodyHtml || ""}
+    </div>`;
+    })
+    .join("");
 }
 
 async function copyText(text) {
@@ -72,7 +149,6 @@ async function copyText(text) {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    // Fallback for contexts where the async clipboard API is unavailable
     const ta = document.createElement("textarea");
     ta.value = text;
     ta.style.position = "fixed";
@@ -80,7 +156,11 @@ async function copyText(text) {
     document.body.appendChild(ta);
     ta.select();
     let ok = false;
-    try { ok = document.execCommand("copy"); } catch { /* ignore */ }
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      /* ignore */
+    }
     ta.remove();
     return ok;
   }
@@ -90,6 +170,7 @@ function initCopyButton(getState) {
   const btn = document.getElementById("copy-summary-btn");
   btn.addEventListener("click", async () => {
     const { data, tz } = getState();
+    if (!data) return;
     const ok = await copyText(buildSummaryText(data, tz));
     btn.textContent = ok ? "Copied!" : "Copy failed";
     if (ok) btn.classList.add("copied");

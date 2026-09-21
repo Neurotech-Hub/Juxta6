@@ -2,7 +2,7 @@
 
 Monorepo for the **Juxta6** wireless Tag platform (nRF54L15): production firmware,
 hardware bring-up fixtures, an iOS companion, and a browser plotter for daily CSV
-logs (`jxta-nor-csv-v7`).
+logs (`jxta-nor-csv-v8`).
 
 | Area | What |
 | --- | --- |
@@ -61,12 +61,13 @@ logs (`jxta-nor-csv-v7`).
 │   ├── HIL_VALIDATION.md
 │   └── ...
 ├── companion/
-│   └── iOS/                       # Juxta6 Xcode companion (Hublink + schema v7)
+│   └── iOS/                       # Juxta6 Xcode companion (Hublink + schema v8)
 ├── plotter/                       # Juxta6 Plotter (static; GitHub Pages)
 ├── reference/juxta5-8/            # Frozen — do not west-build
 └── applications/
     ├── tag-blink/ … tag-ble-adv/  # HIL-01..07 hardware fixtures
     ├── tag-vdd/                   # HIL-12 SAADC VDD
+    ├── tag-bme688/                # HIL-13 BME688 one-shot T/RH
     ├── tag-id/                    # HIL-08 identity
     ├── tag-discover/              # HIL-09 two-tag discovery
     ├── tag-cs/                    # HIL-10 mobile↔mobile CS
@@ -103,6 +104,7 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | 6 | `tag-flash` | MX25L3233 last sector only (4 MiB) |
 | 7 | `tag-ble-adv` | Connectable adv smoke |
 | 12 | `tag-vdd` | SAADC VDD `vdd_mv` / CR2032 `%` estimate |
+| 13 | `tag-bme688` | BME688 one-shot `temp_c` / `humidity_pct` |
 
 ### Wave B — mobile↔mobile ranging (pre-prod)
 
@@ -120,7 +122,7 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | App | Intent |
 | --- | --- |
 | `juxta6-0-prod` | Shelf / magnet / Hublink sync / dual-ant max-RSSI / live vitals / **MX25L3233 NOR CSV** + Filename/File Transfer; RTT mirrors. See [applications/juxta6-0-prod/README.md](applications/juxta6-0-prod/README.md). |
-| Companion | [companion/iOS](companion/iOS) — **Juxta6** Xcode app (firmware 6.x / `jxta-nor-csv-v7`). Open `Juxta6.xcodeproj` (not west). |
+| Companion | [companion/iOS](companion/iOS) — **Juxta6** Xcode app (firmware 6.x / `jxta-nor-csv-v8`). Open `Juxta6.xcodeproj` (not west). |
 | Plotter | [plotter/](plotter/) — **Juxta6 Plotter** ([https://neurotech-hub.github.io/Juxta6/](https://neurotech-hub.github.io/Juxta6/)). |
 
 ## Later milestones

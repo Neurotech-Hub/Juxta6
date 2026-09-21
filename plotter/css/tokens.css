@@ -1,0 +1,64 @@
+/* JUXTA design tokens — source: brand/JUXTA_BRAND.md (§3, §4, §7, §22).
+ * Keep brand values here; style.css consumes semantic aliases only. */
+
+:root {
+  /* Core palette */
+  --juxta-white: #FFFFFF;
+  --juxta-navy: #0B0F3B;
+  --juxta-blue: #2563EB;
+  --juxta-violet: #8B5CF6;
+  --juxta-magenta: #EC0DD9;
+
+  /* Dark surfaces */
+  --juxta-bg: #0B0F3B;
+  --juxta-surface-1: #111746;
+  --juxta-surface-2: #171E55;
+
+  --juxta-text: #FFFFFF;
+  --juxta-text-muted: rgba(255, 255, 255, 0.72);
+  --juxta-text-faint: rgba(255, 255, 255, 0.48);
+  --juxta-border: rgba(255, 255, 255, 0.14);
+  --juxta-border-strong: rgba(255, 255, 255, 0.24);
+
+  --juxta-gradient: linear-gradient(90deg, #2563EB 0%, #8B5CF6 55%, #EC0DD9 100%);
+  --juxta-gradient-dark: linear-gradient(135deg, #0B0F3B 0%, #2563EB 45%, #8B5CF6 72%, #EC0DD9 100%);
+
+  /* Depth */
+  --shadow-standard: 0 8px 30px rgba(0, 0, 0, 0.20);
+  --glow-brand: 0 0 24px rgba(139, 92, 246, 0.20), 0 0 48px rgba(236, 13, 217, 0.12);
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  /* Spacing (8 px system) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+  --space-7: 64px;
+  --space-8: 96px;
+
+  --juxta-content-max: 1200px;
+
+  /* Typography */
+  --font-display: "Space Grotesk", "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Plus Jakarta Sans", "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Motion */
+  --dur-control: 150ms;
+  --dur-panel: 240ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Semantic aliases (data-viz + status; not part of the core brand palette) */
+  --status-warn-bg: rgba(236, 13, 217, 0.10);
+  --status-warn-border: rgba(236, 13, 217, 0.40);
+  --status-warn-text: #F9C6F3;
+  --status-ok: #8B5CF6;
+}

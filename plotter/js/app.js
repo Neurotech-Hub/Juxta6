@@ -15,11 +15,13 @@
 
   function renderAll() {
     if (!currentData) return;
-    // Unhide before rendering so Plotly can measure the container width
+    // Unhide before rendering so Plotly/Leaflet can measure container width
     setHidden("summary-section", false);
+    setHidden("location-section", false);
     setHidden("plots-section", false);
     setHidden("events-section", false);
     renderSummary(currentData, currentTz);
+    renderLastLocation(currentData, currentTz);
     renderAllPlots(currentData, currentTz);
     renderEventsTable(currentData.jxs, currentTz);
   }
@@ -49,6 +51,7 @@
       messages.unshift(result.error);
       showWarnings(messages);
       setHidden("summary-section", true);
+      setHidden("location-section", true);
       setHidden("plots-section", true);
       setHidden("events-section", true);
       loadStatus.hidden = true;
@@ -87,6 +90,14 @@
     fileInput.value = "";
   });
 
+  document.getElementById("load-demo-link").addEventListener("click", () => {
+    if (typeof buildJuxtaDemoFiles !== "function") {
+      showWarnings(["Demo data loader is unavailable."]);
+      return;
+    }
+    handleFiles(buildJuxtaDemoFiles());
+  });
+
   // Timezone switch re-renders everything
   document.getElementById("tz-select").addEventListener("change", (e) => {
     currentTz = e.target.value;
@@ -95,13 +106,16 @@
 
   initCopyButton(() => ({ data: currentData, tz: currentTz }));
 
-  // Re-size Plotly charts to match print layout width
-  function resizePlots() {
+  // Print: swap Plotly to the light theme (SVG colors are baked in, so CSS
+  // print overrides don't reach them) and re-render at print width.
+  function rerenderPlotsForTheme(themeName) {
     if (!currentData) return;
+    setPlotTheme(themeName);
+    renderAllPlots(currentData, currentTz);
     document.querySelectorAll(".plot").forEach((el) => {
       if (el.data) Plotly.Plots.resize(el);
     });
   }
-  window.addEventListener("beforeprint", resizePlots);
-  window.addEventListener("afterprint", resizePlots);
+  window.addEventListener("beforeprint", () => rerenderPlotsForTheme("light"));
+  window.addEventListener("afterprint", () => rerenderPlotsForTheme("dark"));
 })();

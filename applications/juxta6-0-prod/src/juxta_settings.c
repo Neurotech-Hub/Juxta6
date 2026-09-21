@@ -35,8 +35,8 @@ void juxta_settings_defaults(struct juxta_settings *settings, const char *device
 /*
  * Clamp/repair a settings struct. Applied to values loaded from NVS as well
  * as BLE updates: corrupt or legacy NVS content must never produce a
- * pathological runtime (vitals_interval_s == 0 makes the production vitals
- * deadline always due — a battery-draining busy loop) or non-terminated
+ * pathological runtime (vitals_interval_s below the 60 s floor would densify
+ * NOR writes beyond the JXV budget) or non-terminated
  * strings (formatted with %s into Node JSON / JXS rows).
  */
 static void settings_sanitize(struct juxta_settings *s)
@@ -50,8 +50,8 @@ static void settings_sanitize(struct juxta_settings *s)
 	if (s->scan_interval_s > JUXTA_MAX_BLE_INTERVAL_S) {
 		s->scan_interval_s = JUXTA_MAX_BLE_INTERVAL_S;
 	}
-	if (s->vitals_interval_s == 0U) {
-		s->vitals_interval_s = JUXTA_DEFAULT_VITALS_INTERVAL_S;
+	if (s->vitals_interval_s < JUXTA_MIN_VITALS_INTERVAL_S) {
+		s->vitals_interval_s = JUXTA_MIN_VITALS_INTERVAL_S;
 	}
 	if (s->inactivity_multiplier < 1U) {
 		s->inactivity_multiplier = 1U;

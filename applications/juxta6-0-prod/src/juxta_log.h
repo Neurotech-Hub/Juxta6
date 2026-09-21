@@ -61,9 +61,11 @@ int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_set
 int juxta_log_append_event_loc(struct juxta_log_context *ctx, const struct juxta_settings *settings,
 			       const char *device_id, const char *event, uint32_t unix_time,
 			       bool loc_valid, float latitude, float longitude);
+/* temp_c / humidity: one-decimal BME688 fields; empty CSV cells when !*ok. */
 int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, uint16_t motion,
-							int32_t batt_mv, int8_t temp_c);
-/* v6: no observer column (constant per device, in the filename); the JX_
+			    int32_t batt_mv, float temp_c, bool temp_ok, float humidity,
+			    bool humidity_ok);
+/* No observer column (constant per device, in the filename); the JX_
  * prefix is stripped from peer_id before the row is stored. */
 int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t unix_time,
 									 const char *peer_id, int8_t rssi);

@@ -28,7 +28,7 @@ struct juxta_checkpoint_record
 	uint32_t unix_time;	   /* clock at capture (never 0 for stored records) */
 	uint32_t motion_count; /* ADXL367 events since the last JXV vitals row */
 	int32_t batt_mv;	   /* last battery sample */
-	int8_t temp_c;		   /* last ADXL367 die temperature (0 until first vitals) */
+	int8_t temp_c;		   /* unused (env temp is BME688 → JXV only) */
 };
 
 /* Scan the ring for the newest valid record and position the write head

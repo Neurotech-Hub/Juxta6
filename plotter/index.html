@@ -3,14 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Juxta6 Plotter</title>
+  <meta name="theme-color" content="#0B0F3B">
+  <title>JUXTA Plotter</title>
+  <link rel="icon" type="image/png" href="assets/juxta_symbol.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="">
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@2.35.2/plotly-basic.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
 </head>
 <body>
-  <header>
-    <h1>Juxta6 Plotter</h1>
+  <header class="site-header">
+    <a class="brand-lockup" href="./" aria-label="JUXTA Plotter home">
+      <img class="brand-symbol" src="assets/juxta_symbol.png" alt="" width="36" height="36">
+      <span class="brand-wordmark">JUXTA</span>
+      <span class="brand-product">Plotter</span>
+    </a>
     <label class="tz-control">
       Timezone
       <select id="tz-select">
@@ -24,11 +40,24 @@
   <main>
     <section id="upload-section">
       <div id="drop-zone">
-        <p><strong>Drop CSV files here</strong> (JXV / JXB / JXS)</p>
+        <svg class="drop-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="juxta-arrow-grad" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0%" stop-color="#2563EB"/>
+              <stop offset="55%" stop-color="#8B5CF6"/>
+              <stop offset="100%" stop-color="#EC0DD9"/>
+            </linearGradient>
+          </defs>
+          <polygon points="6,74 92,6 88,94 58,62" fill="url(#juxta-arrow-grad)"/>
+        </svg>
+        <p class="drop-title">Drop CSV files here <span>JXV · JXB · JXS</span></p>
         <p class="hint">or</p>
-        <button id="browse-btn" type="button">Browse files</button>
+        <button id="browse-btn" class="btn-primary" type="button">Browse files</button>
         <input type="file" id="file-input" accept=".csv" multiple hidden>
       </div>
+      <p class="demo-link-row">
+        <button type="button" id="load-demo-link" class="demo-link">Load demo data</button>
+      </p>
       <div id="load-status" hidden></div>
       <div id="warnings" hidden></div>
     </section>
@@ -37,20 +66,36 @@
       <div class="card">
         <div class="card-header">
           <h2>Summary</h2>
-          <button id="copy-summary-btn" type="button">Copy summary</button>
+          <button id="copy-summary-btn" class="btn-secondary" type="button">Copy summary</button>
         </div>
-        <pre id="summary-text"></pre>
+        <div id="summary-grid" class="summary-grid"></div>
+      </div>
+    </section>
+
+    <section id="location-section" hidden>
+      <div class="card">
+        <div class="card-header">
+          <h2>Last Location</h2>
+        </div>
+        <p id="location-meta" class="location-meta"></p>
+        <div id="location-map" class="location-map" hidden></div>
+        <p id="location-empty" class="empty-note" hidden>No location in this package.</p>
       </div>
     </section>
 
     <section id="plots-section" hidden>
+      <span class="section-label">Vitals</span>
       <div class="card">
         <h2>Activity</h2>
         <div id="plot-activity" class="plot"></div>
       </div>
       <div class="card">
-        <h2>Battery &amp; Temperature</h2>
-        <div id="plot-batt-temp" class="plot"></div>
+        <h2>Battery</h2>
+        <div id="plot-battery" class="plot"></div>
+      </div>
+      <div class="card">
+        <h2>Temperature &amp; Humidity</h2>
+        <div id="plot-temp-humid" class="plot"></div>
       </div>
       <div class="card">
         <h2>BLE Peers</h2>
@@ -59,21 +104,24 @@
     </section>
 
     <section id="events-section" hidden>
+      <span class="section-label">Lifecycle</span>
       <div class="card">
         <h2>System Events</h2>
-        <div id="events-table"></div>
+        <div id="events-table" class="table-wrap"></div>
       </div>
     </section>
   </main>
 
-  <footer>
-    <p>Juxta6 Plotter — schema jxta-nor-csv-v7; all processing happens in your browser; no data is uploaded anywhere.</p>
+  <footer class="site-footer">
+    <p>JUXTA Plotter — schema jxta-nor-csv-v8; all processing happens in your browser; no data is uploaded anywhere.</p>
   </footer>
 
   <script src="js/parse.js"></script>
   <script src="js/plots.js"></script>
   <script src="js/table.js"></script>
   <script src="js/summary.js"></script>
+  <script src="js/location.js"></script>
+  <script src="js/demo.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

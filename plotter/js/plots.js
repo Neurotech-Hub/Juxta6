@@ -2,14 +2,66 @@
 
 const PLOT_CONFIG = { responsive: true, displaylogo: false };
 
+// Brand palette for data series (brand/JUXTA_BRAND.md §3). Blue/violet carry the
+// primary signals; magenta is reserved for high-value emphasis (temp, strong RSSI).
+const BRAND = {
+  navy: "#0B0F3B",
+  blue: "#2563EB",
+  violet: "#8B5CF6",
+  magenta: "#EC0DD9",
+  // Lighter blue tint so a thin line stays legible on navy.
+  blueLight: "#5B8DEF",
+};
+
+// Screen is dark navy; print swaps to a light theme via setPlotTheme().
+const PLOT_THEMES = {
+  dark: {
+    text: "rgba(255,255,255,0.72)",
+    grid: "rgba(255,255,255,0.08)",
+    axis: "rgba(255,255,255,0.20)",
+    series: { motion: BRAND.violet, battery: BRAND.blueLight, temp: BRAND.magenta, humidity: BRAND.blueLight },
+  },
+  light: {
+    text: BRAND.navy,
+    grid: "#E2E5EA",
+    axis: "#C4C8D0",
+    series: { motion: BRAND.violet, battery: BRAND.blue, temp: BRAND.magenta, humidity: BRAND.blue },
+  },
+};
+
+let activePlotTheme = "dark";
+
+function setPlotTheme(name) {
+  if (PLOT_THEMES[name]) activePlotTheme = name;
+}
+
+function theme() {
+  return PLOT_THEMES[activePlotTheme];
+}
+
 // Identical margins on every time plot keep the plot areas pixel-aligned;
 // the right margin reserves room for the RSSI colorbar / right y-axis.
-const BASE_LAYOUT = {
-  margin: { l: 90, r: 130, t: 10, b: 45 },
-  font: { family: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif", size: 12 },
-  paper_bgcolor: "rgba(0,0,0,0)",
-  plot_bgcolor: "rgba(0,0,0,0)",
-};
+function baseLayout() {
+  const t = theme();
+  return {
+    margin: { l: 90, r: 130, t: 10, b: 45 },
+    font: { family: "Plus Jakarta Sans, Inter, Helvetica Neue, Arial, sans-serif", size: 12, color: t.text },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    hoverlabel: { font: { family: "Plus Jakarta Sans, Inter, Arial, sans-serif" } },
+  };
+}
+
+// Axis styling shared by every plot; merged with per-plot axis options.
+function styledAxis(extra) {
+  const t = theme();
+  return Object.assign({
+    gridcolor: t.grid,
+    linecolor: t.axis,
+    zerolinecolor: t.grid,
+    tickcolor: t.axis,
+  }, extra);
+}
 
 function showEmpty(elId, message) {
   const el = document.getElementById(elId);
@@ -28,7 +80,7 @@ function sharedTimeRange(jxv, jxb, tz) {
 }
 
 function xAxis(abbr, range) {
-  const axis = { title: { text: `Time (${abbr})` }, type: "date" };
+  const axis = styledAxis({ title: { text: `Time (${abbr})` }, type: "date" });
   if (range) axis.range = range;
   return axis;
 }
@@ -46,50 +98,80 @@ function renderActivityPlot(jxv, tz, range) {
     y: jxv.map((r) => r.motion),
     type: "scatter",
     mode: "lines",
-    line: { color: "#2563eb", width: 1.5 },
+    line: { color: theme().series.motion, width: 1.75 },
     name: "Motion",
     hovertemplate: "%{x}<br>Motion: %{y}<extra></extra>",
-  }], Object.assign({}, BASE_LAYOUT, {
+  }], Object.assign(baseLayout(), {
     height: 260,
     xaxis: xAxis(abbr, range),
-    yaxis: { title: { text: "Motion count" }, rangemode: "tozero" },
+    yaxis: styledAxis({ title: { text: "Motion count" }, rangemode: "tozero" }),
     showlegend: false,
   }), PLOT_CONFIG);
 }
 
-function renderBattTempPlot(jxv, tz, range) {
+function renderBatteryPlot(jxv, tz, range) {
   if (jxv.length === 0) {
-    showEmpty("plot-batt-temp", "No JXV files loaded.");
+    showEmpty("plot-battery", "No JXV files loaded.");
     return;
   }
   const x = jxv.map((r) => unixToTzString(r.unix, tz));
   const abbr = TZ_ABBR[tz];
 
-  Plotly.newPlot("plot-batt-temp", [
-    {
-      x,
-      y: jxv.map((r) => r.batt_v),
-      type: "scatter",
-      mode: "lines",
-      line: { color: "#16a34a", width: 1.5 },
-      name: "Battery (V)",
-      hovertemplate: "%{x}<br>Battery: %{y:.2f} V<extra></extra>",
-    },
+  Plotly.newPlot("plot-battery", [{
+    x,
+    y: jxv.map((r) => r.batt_v),
+    type: "scatter",
+    mode: "lines",
+    line: { color: theme().series.battery, width: 1.75 },
+    name: "Battery (V)",
+    hovertemplate: "%{x}<br>Battery: %{y:.2f} V<extra></extra>",
+  }], Object.assign(baseLayout(), {
+    height: 260,
+    xaxis: xAxis(abbr, range),
+    yaxis: styledAxis({ title: { text: "Battery (V)" }, tickformat: ".2f" }),
+    showlegend: false,
+  }), PLOT_CONFIG);
+}
+
+function renderTempHumidPlot(jxv, tz, range) {
+  if (jxv.length === 0) {
+    showEmpty("plot-temp-humid", "No JXV files loaded.");
+    return;
+  }
+  const x = jxv.map((r) => unixToTzString(r.unix, tz));
+  const abbr = TZ_ABBR[tz];
+
+  Plotly.newPlot("plot-temp-humid", [
     {
       x,
       y: jxv.map((r) => r.temp_c),
       type: "scatter",
       mode: "lines",
-      line: { color: "#dc6b26", width: 1.5 },
+      line: { color: theme().series.temp, width: 1.75 },
       name: "Temp (°C)",
-      yaxis: "y2",
-      hovertemplate: "%{x}<br>Temp: %{y} °C<extra></extra>",
+      hovertemplate: "%{x}<br>Temp: %{y:.1f} °C<extra></extra>",
     },
-  ], Object.assign({}, BASE_LAYOUT, {
+    {
+      x,
+      y: jxv.map((r) => r.humidity),
+      type: "scatter",
+      mode: "lines",
+      line: { color: theme().series.humidity, width: 1.75 },
+      name: "Humidity (%)",
+      yaxis: "y2",
+      hovertemplate: "%{x}<br>Humidity: %{y:.1f} %<extra></extra>",
+    },
+  ], Object.assign(baseLayout(), {
     height: 280,
     xaxis: xAxis(abbr, range),
-    yaxis: { title: { text: "Battery (V)" }, tickformat: ".2f" },
-    yaxis2: { title: { text: "Temperature (°C)" }, overlaying: "y", side: "right" },
+    yaxis: styledAxis({ title: { text: "Temperature (°C)" } }),
+    yaxis2: styledAxis({
+      title: { text: "Humidity (%)" },
+      overlaying: "y",
+      side: "right",
+      rangemode: "tozero",
+      showgrid: false,
+    }),
     legend: { orientation: "h", y: 1.12 },
   }), PLOT_CONFIG);
 }
@@ -110,17 +192,23 @@ function renderPeersPlot(jxb, tz, range) {
     marker: {
       size: 8,
       color: jxb.map((r) => r.rssi),
-      colorscale: [[0, "#d73027"], [0.5, "#fee08b"], [1, "#1a9850"]],
+      // Brand gradient as a sequential scale: weak = blue, strong = magenta.
+      colorscale: [[0, BRAND.blue], [0.55, BRAND.violet], [1, BRAND.magenta]],
       cmin: -95,
       cmax: -55,
-      colorbar: { title: { text: "RSSI (dBm)" }, thickness: 14 },
+      colorbar: {
+        title: { text: "RSSI (dBm)" },
+        thickness: 14,
+        outlinewidth: 0,
+        tickcolor: theme().axis,
+      },
     },
     customdata: jxb.map((r) => r.rssi),
     hovertemplate: "%{y}<br>%{x}<br>RSSI: %{customdata} dBm<extra></extra>",
-  }], Object.assign({}, BASE_LAYOUT, {
+  }], Object.assign(baseLayout(), {
     height: Math.max(220, 80 + peers.length * 40),
     xaxis: xAxis(abbr, range),
-    yaxis: { title: { text: "Peer" }, type: "category", categoryorder: "array", categoryarray: peers },
+    yaxis: styledAxis({ title: { text: "Peer" }, type: "category", categoryorder: "array", categoryarray: peers }),
     showlegend: false,
   }), PLOT_CONFIG);
 }
@@ -128,6 +216,7 @@ function renderPeersPlot(jxb, tz, range) {
 function renderAllPlots(data, tz) {
   const range = sharedTimeRange(data.jxv, data.jxb, tz);
   renderActivityPlot(data.jxv, tz, range);
-  renderBattTempPlot(data.jxv, tz, range);
+  renderBatteryPlot(data.jxv, tz, range);
+  renderTempHumidPlot(data.jxv, tz, range);
   renderPeersPlot(data.jxb, tz, range);
 }
