@@ -224,7 +224,14 @@ function renderPeersPlot(jxb, tz, range) {
   }], Object.assign(baseLayout(), {
     height: Math.max(220, 80 + peers.length * 40),
     xaxis: xAxis(abbr, range),
-    yaxis: styledAxis({ title: { text: "Peer" }, type: "category", categoryorder: "array", categoryarray: peers }),
+    yaxis: styledAxis({
+      title: { text: "Peer" },
+      type: "category",
+      categoryorder: "array",
+      categoryarray: peers,
+      // Smaller than baseLayout (12) so tick labels clear the "Peer" axis title.
+      tickfont: { size: 10 },
+    }),
     showlegend: false,
   }), PLOT_CONFIG);
 }
