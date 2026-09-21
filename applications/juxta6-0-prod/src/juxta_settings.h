@@ -17,6 +17,8 @@ struct juxta_settings {
 	uint8_t location_valid;
 	float latitude;
 	float longitude;
+	/* 0 = Mobile Tag (JX_), 1 = Base Station (JB_). Trailing for NVS short-read compat. */
+	uint8_t is_basestation;
 };
 
 struct juxta_log_cache_file {

@@ -30,6 +30,7 @@ void juxta_settings_defaults(struct juxta_settings *settings, const char *device
 	settings->location_valid = 0U;
 	settings->latitude = 0.0f;
 	settings->longitude = 0.0f;
+	settings->is_basestation = 0U;
 }
 
 /*
@@ -76,13 +77,14 @@ static void settings_sanitize(struct juxta_settings *s)
 		s->latitude = 0.0f;
 		s->longitude = 0.0f;
 	}
+	s->is_basestation = (s->is_basestation != 0U) ? 1U : 0U;
 }
 
 static int settings_set_handler(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg)
 {
 	if (strcmp(name, "current") == 0) {
-		/* Pre-v7 blobs omit location_*; accept shorter reads and keep defaults
-		 * for the new trailing fields (already set by juxta_settings_defaults). */
+		/* Pre-v7 omit location_*; pre-v9 omit is_basestation. Accept shorter
+		 * reads and keep defaults for trailing fields (from defaults()). */
 		if (len > sizeof(current)) {
 			return -EINVAL;
 		}
@@ -134,9 +136,10 @@ int juxta_settings_init(const char *device_id)
 		(void)snprintf(current.subject_id, sizeof(current.subject_id), "%s", device_id);
 	}
 
-	LOG_INF("settings subject=%s scan=%us adv=%us vitals=%us motion=%u", current.subject_id,
-		current.scan_interval_s, current.adv_interval_s, current.vitals_interval_s,
-		current.motion_logging);
+	LOG_INF("settings subject=%s scan=%us adv=%us vitals=%us motion=%u base=%u",
+		current.subject_id, current.scan_interval_s, current.adv_interval_s,
+		current.vitals_interval_s, current.motion_logging,
+		(unsigned int)current.is_basestation);
 	return 0;
 }
 

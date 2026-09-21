@@ -45,6 +45,8 @@ struct juxta_log_context
 
 int juxta_log_init(struct juxta_log_context *ctx, const struct juxta_settings *settings,
 				   const char *device_id);
+/* Update the cached device_id used for JXS day_start / ble_name after a role change. */
+void juxta_log_set_device_id(const char *device_id);
 int juxta_log_format(struct juxta_log_context *ctx);
 
 /* Optional progress hook called inside long internal loops (currently the
@@ -65,8 +67,8 @@ int juxta_log_append_event_loc(struct juxta_log_context *ctx, const struct juxta
 int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, uint16_t motion,
 			    int32_t batt_mv, float temp_c, bool temp_ok, float humidity,
 			    bool humidity_ok);
-/* No observer column (constant per device, in the filename); the JX_
- * prefix is stripped from peer_id before the row is stored. */
+/* No observer column (constant per device, in the package folder). ADV names
+ * JX_/JB_XXXXXX are stored as 7-char peer_id: X|B + 6 hex. */
 int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t unix_time,
 									 const char *peer_id, int8_t rssi);
 int juxta_log_list_files(struct juxta_log_context *ctx, char *buffer, size_t buffer_size);

@@ -54,6 +54,8 @@
       setHidden("location-section", true);
       setHidden("plots-section", true);
       setHidden("events-section", true);
+      const hero = document.getElementById("summary-hero");
+      if (hero) hero.hidden = true;
       loadStatus.hidden = true;
       currentData = null;
       return;
@@ -62,10 +64,9 @@
     showWarnings(messages);
     currentData = result;
 
-    const { fileCounts, deviceId } = result;
-    loadStatus.innerHTML =
-      `Loaded: ${fileCounts.jxv}× JXV, ${fileCounts.jxb}× JXB, ${fileCounts.jxs}× JXS` +
-      (deviceId ? ` &nbsp;·&nbsp; Device: <strong>${deviceId}</strong>` : "");
+    const { fileCounts } = result;
+    loadStatus.textContent =
+      `Loaded: ${fileCounts.jxv}× JXV, ${fileCounts.jxb}× JXB, ${fileCounts.jxs}× JXS`;
     loadStatus.hidden = false;
 
     renderAll();

@@ -2,6 +2,21 @@
 
 const PLOT_CONFIG = { responsive: true, displaylogo: false };
 
+/** JXB storage is X|B + 6 hex; charts show reconstructed JX_/JB_ ADV names. */
+function displayPeerName(peerId) {
+  if (!peerId || typeof peerId !== "string") return peerId;
+  const p = peerId.trim();
+  if (p.startsWith("JX_") || p.startsWith("JB_")) return p;
+  if (p.length === 7) {
+    const role = p[0];
+    const hex = p.slice(1);
+    if (role === "X" || role === "x") return `JX_${hex}`;
+    if (role === "B" || role === "b") return `JB_${hex}`;
+  }
+  if (p.length === 6) return `JX_${p}`;
+  return p;
+}
+
 // Brand palette for data series (brand/JUXTA_BRAND.md §3). Blue/violet carry the
 // primary signals; magenta is reserved for high-value emphasis (temp, strong RSSI).
 const BRAND = {
@@ -182,11 +197,12 @@ function renderPeersPlot(jxb, tz, range) {
     return;
   }
   const abbr = TZ_ABBR[tz];
-  const peers = [...new Set(jxb.map((r) => r.peer_id))].sort().reverse(); // reverse so A-Z reads top-down
+  const labels = jxb.map((r) => displayPeerName(r.peer_id));
+  const peers = [...new Set(labels)].sort().reverse(); // reverse so A-Z reads top-down
 
   Plotly.newPlot("plot-peers", [{
     x: jxb.map((r) => unixToTzString(r.unix, tz)),
-    y: jxb.map((r) => r.peer_id),
+    y: labels,
     type: "scatter",
     mode: "markers",
     marker: {

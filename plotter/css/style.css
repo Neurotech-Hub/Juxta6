@@ -306,8 +306,20 @@ button:disabled {
 
 .demo-link-row {
   display: flex;
-  justify-content: flex-end;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: var(--space-3);
   margin: var(--space-2) 0 0;
+  min-height: 1.25em;
+}
+
+.demo-link-row #load-status {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--juxta-text-muted);
+  text-align: left;
 }
 
 .demo-link {
@@ -315,7 +327,7 @@ button:disabled {
   background: none;
   border: none;
   padding: 0;
-  margin: 0;
+  margin: 0 0 0 auto;
   font: inherit;
   font-size: 0.8rem;
   font-weight: 500;
@@ -323,21 +335,11 @@ button:disabled {
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .demo-link:hover {
   color: var(--juxta-text-muted);
-}
-
-#load-status {
-  margin-top: var(--space-3);
-  font-size: 0.9rem;
-  color: var(--juxta-text-muted);
-}
-
-#load-status strong {
-  color: var(--juxta-text);
-  font-weight: 600;
 }
 
 #warnings {
@@ -355,6 +357,19 @@ button:disabled {
 }
 
 /* ── Summary ────────────────────────────────────────────────────── */
+
+.summary-hero {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 var(--space-4);
+}
+
+.summary-hero img {
+  display: block;
+  width: min(280px, 70vw);
+  height: auto;
+  object-fit: contain;
+}
 
 .summary-grid {
   display: grid;

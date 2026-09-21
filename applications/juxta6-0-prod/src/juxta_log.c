@@ -12,6 +12,7 @@
 #include <zephyr/sys/util.h>
 
 #include "juxta_time.h"
+#include "juxta_id.h"
 
 /* Production: LOG_LEVEL_INF.  The per-chunk DBG instrumentation in
  * flash_append produced ~one log line per 256 B of NOR write, which under
@@ -49,8 +50,8 @@ static const struct log_region regions[] = {
 	 "unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude\n",
 	 JXS_START, JXS_SIZE},
 	/* JXV/JXB: day-relative seconds ("sec" = unix % 86400 UTC; date in
-	 * filename). JXB: no observer column; peer IDs without JX_ prefix.
-	 * JXS: absolute unix + lat/lon. JXV: BME688 temp_c + humidity (%.1f). */
+	 * filename). JXB peer_id is X|B + 6 hex (mobile/base). JXS: absolute
+	 * unix + lat/lon. JXV: BME688 temp_c + humidity (%.1f). */
 	{JUXTA_LOG_JXV, "JXV", "sec,motion,batt_v,temp_c,humidity\n", JXV_START, JXV_SIZE},
 	{JUXTA_LOG_JXB, "JXB", "sec,peer_id,rssi\n", JXB_START, JXB_SIZE},
 };
@@ -1119,6 +1120,14 @@ out:
 	return rc;
 }
 
+void juxta_log_set_device_id(const char *device_id)
+{
+	s_device_id[0] = '\0';
+	if (device_id != NULL) {
+		(void)snprintf(s_device_id, sizeof(s_device_id), "%s", device_id);
+	}
+}
+
 static int erase_region(struct juxta_log_context *ctx, const struct log_region *region)
 {
 	struct flash_pages_info page;
@@ -1337,6 +1346,7 @@ int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t uni
 									 const char *peer_id, int8_t rssi)
 {
 	static char row[96];
+	char stored[JUXTA_JXB_PEER_LEN];
 	int rc;
 
 	if (!ctx || !peer_id)
@@ -1344,10 +1354,9 @@ int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t uni
 		return -EINVAL;
 	}
 
-	/* Drop the constant JX_ prefix from stored peer IDs. */
-	if (strncmp(peer_id, "JX_", 3) == 0)
+	if (juxta_id_to_jxb_peer(peer_id, stored, sizeof(stored)) != 0)
 	{
-		peer_id += 3;
+		return -EINVAL;
 	}
 
 	LOG_LOCK();
@@ -1365,14 +1374,14 @@ int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t uni
 	}
 
 	int len = snprintf(row, sizeof(row), "%u,%s,%d\n", DAY_RELATIVE_S(unix_time),
-					   peer_id, rssi);
+					   stored, rssi);
 	if (len < 0 || len >= (int)sizeof(row))
 	{
 		rc = -ENOSPC;
 		goto out;
 	}
 
-	LOG_INF("JXB[%u] %s rssi=%d", unix_time, peer_id, rssi);
+	LOG_INF("JXB[%u] %s rssi=%d", unix_time, stored, rssi);
 	rc = append_row(ctx, JUXTA_LOG_JXB, row);
 
 out:

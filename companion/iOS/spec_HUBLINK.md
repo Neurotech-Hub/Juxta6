@@ -1,8 +1,8 @@
 # Hublink BLE protocol (Juxta6)
 
-Contract between the **Juxta6** iOS companion and **juxta6-0-prod** Tags. Service UUID: `57617368-5501-0001-8000-00805f9b34fb`. Advertising name: `JX_*` (last 6 hex of public address) = `deviceId`.
+Contract between the **Juxta6** iOS companion and **juxta6-0-prod** Tags. Service UUID: `57617368-5501-0001-8000-00805f9b34fb`. Advertising name: `JX_*` (Mobile Tag) or `JB_*` (Base Station) + last 6 hex of public address = `deviceId`.
 
-Firmware reference: `applications/juxta6-0-prod` (current ship **6.4.0**, log schema **`jxta-nor-csv-v8`**).
+Firmware reference: `applications/juxta6-0-prod` (current ship **6.5.0**, log schema **`jxta-nor-csv-v9`**).
 
 ## Characteristics
 
@@ -12,16 +12,17 @@ CamelCase JSON status + settings:
 
 ```json
 {
-  "firmwareVersion": "6.4.0",
+  "firmwareVersion": "6.5.0",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
   "subjectId": "001",
   "experiment": "trial-A",
-  "advInterval": 5,
+  "advInterval": 2,
   "scanInterval": 30,
   "inactivityMultiplier": 1,
-  "motionLogging": true
+  "motionLogging": true,
+  "isBaseStation": false
 }
 ```
 
@@ -29,10 +30,12 @@ CamelCase JSON status + settings:
 | --- | --- |
 | `firmwareVersion` | Companion accepts prefix `6.` only |
 | `batteryLevel` / `memoryLevel` | 0–100 |
+| `deviceId` | Current ADV name (`JX_*` or `JB_*`) |
 | `advInterval` / `scanInterval` | Seconds between 1 s bursts; `0` = off; max 120 |
 | `vitalsInterval` | Seconds; hard floor **60** on the Tag |
 | `inactivityMultiplier` | 1–10 |
 | `motionLogging` | bool |
+| `isBaseStation` | `false` = Mobile Tag (`JX_`); `true` = Base Station (`JB_`) |
 
 Unknown keys may be ignored.
 
@@ -46,11 +49,12 @@ Unknown keys may be ignored.
   "longitude": -90.1994,
   "subjectId": "001",
   "experiment": "trial-A",
-  "advInterval": 5,
+  "advInterval": 2,
   "scanInterval": 30,
   "vitalsInterval": 60,
   "inactivityMultiplier": 1,
   "motionLogging": true,
+  "isBaseStation": false,
   "clearMemory": true,
   "reset": true
 }
@@ -61,6 +65,7 @@ Unknown keys may be ignored.
 | `timestamp` | Unix **UTC** epoch seconds (required for logging clock) |
 | `sendFilenames` | Request file listing via Filename indications |
 | `latitude` / `longitude` | WGS84 degrees from the gateway phone; omit if unavailable. When both present, Tag stores last-known in NVS and writes them on the `time_set` JXS row |
+| `isBaseStation` | Role / identity. Changing it **always** clears NOR CSV on the Tag (companion should also send `clearMemory: true`) |
 | `clearMemory` | Erase NOR CSV regions |
 | `reset` | Disconnect and enter shelf (white LED chirp every 5 s) |
 | settings keys | Persisted to NVS; `experiment` may be omitted when empty; `vitalsInterval` clamped to ≥60 |
@@ -88,26 +93,19 @@ MTU: Tag negotiates large ATT MTU (companion should exchange MTU; firmware targe
 ## Daily packages on disk (companion)
 
 ```text
-Documents/<device_id>/
-  JXV<YYYYMMDD>.csv
-  JXS<YYYYMMDD>.csv
-  JXB<YYYYMMDD>.csv
+Documents/
+  JX_A1B2C3/          # or JB_A1B2C3 for a base
+    JXS20260507.csv
+    JXV20260507.csv
+    JXB20260507.csv
 ```
 
-### Schema v8 columns
+## NOR CSV (schema v9)
 
-| File | Header |
+| File | Columns |
 | --- | --- |
+| JXS | `unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude` |
 | JXV | `sec,motion,batt_v,temp_c,humidity` |
 | JXB | `sec,peer_id,rssi` |
-| JXS | `unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude` |
 
-JXV `temp_c` / `humidity` are BME688 one-shot values at one decimal (empty if sample failed).
-
-JXS lat/lon fill rules:
-
-- `time_set`: coords from **this** Gateway write only (empty if omitted).
-- `day_start`: last-known NVS coords (empty until first successful fix).
-- Other events: empty lat/lon fields.
-
-`sec` is day-relative UTC seconds (`unix % 86400`). Absolute time = UTC midnight of `YYYYMMDD` + `sec`. JXB `peer_id` has no `JX_` prefix.
+`sec` is day-relative UTC seconds (`unix % 86400`). Absolute time = UTC midnight of `YYYYMMDD` + `sec`. JXB `peer_id` is `X` or `B` + 6 hex (reconstruct `JX_`/`JB_` for display).

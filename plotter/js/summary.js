@@ -37,9 +37,31 @@ function escapeHtml(s) {
 }
 
 function collectSummaryMetrics(data, tz) {
-  const { jxv, jxb, jxs } = data;
+  const { jxv, jxb, jxs, deviceId } = data;
   const abbr = TZ_ABBR[tz];
   const cards = [];
+
+  const fw = [...jxs].reverse().find((r) => r.fw_version)?.fw_version;
+  const id = deviceId || [...jxs].find((r) => r.device_id)?.device_id || null;
+  if (id || fw) {
+    const idLine = id || "—";
+    const fwLine = fw || "—";
+    const isBase = id && String(id).startsWith("JB_");
+    const typeLine = id ? (isBase ? "Base Station" : "Mobile") : "—";
+    cards.push({
+      label: "Device",
+      value: "",
+      copyLines: [
+        id ? `ID: ${id}` : null,
+        id ? `Type: ${typeLine}` : null,
+        fw ? `Firmware: ${fw}` : null,
+      ].filter(Boolean),
+      bodyHtml: `
+        <div class="metric-row"><span class="metric-k">ID</span><span class="metric-v">${escapeHtml(idLine)}</span></div>
+        <div class="metric-row"><span class="metric-k">Type</span><span class="metric-v">${escapeHtml(typeLine)}</span></div>
+        <div class="metric-row"><span class="metric-k">Firmware</span><span class="metric-v">${escapeHtml(fwLine)}</span></div>`,
+    });
+  }
 
   const allUnix = [...jxv, ...jxb].map((r) => r.unix);
   if (allUnix.length > 0) {
@@ -103,16 +125,6 @@ function collectSummaryMetrics(data, tz) {
     });
   }
 
-  const fw = [...jxs].reverse().find((r) => r.fw_version)?.fw_version;
-  if (fw) {
-    cards.push({
-      label: "Firmware",
-      value: fw,
-      copyLines: [`Firmware: ${fw}`],
-      bodyHtml: "",
-    });
-  }
-
   return cards;
 }
 
@@ -124,6 +136,20 @@ function buildSummaryText(data, tz) {
 
 function renderSummary(data, tz) {
   const grid = document.getElementById("summary-grid");
+  const hero = document.getElementById("summary-hero");
+  const heroImg = document.getElementById("summary-hero-img");
+  const deviceId =
+    data.deviceId || data.jxs?.find((r) => r.device_id)?.device_id || null;
+
+  if (hero && heroImg) {
+    const isBase = deviceId && String(deviceId).startsWith("JB_");
+    heroImg.src = isBase
+      ? "assets/juxta_tag_base.png"
+      : "assets/juxta_tag_mobile.png";
+    heroImg.alt = isBase ? "Juxta base station" : "Juxta mobile tag";
+    hero.hidden = false;
+  }
+
   const cards = collectSummaryMetrics(data, tz);
   if (cards.length === 0) {
     grid.innerHTML = '<p class="empty-note">No summary metrics in this package.</p>';

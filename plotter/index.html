@@ -56,13 +56,16 @@
         <input type="file" id="file-input" accept=".csv" multiple hidden>
       </div>
       <p class="demo-link-row">
+        <span id="load-status" hidden></span>
         <button type="button" id="load-demo-link" class="demo-link">Load demo data</button>
       </p>
-      <div id="load-status" hidden></div>
       <div id="warnings" hidden></div>
     </section>
 
     <section id="summary-section" hidden>
+      <div class="summary-hero" id="summary-hero" hidden>
+        <img id="summary-hero-img" src="" alt="" width="280" height="280">
+      </div>
       <div class="card">
         <div class="card-header">
           <h2>Summary</h2>
@@ -113,7 +116,7 @@
   </main>
 
   <footer class="site-footer">
-    <p>JUXTA Plotter — schema jxta-nor-csv-v8; all processing happens in your browser; no data is uploaded anywhere.</p>
+    <p>JUXTA Plotter — schema jxta-nor-csv-v9; all processing happens in your browser; no data is uploaded anywhere.</p>
   </footer>
 
   <script src="js/parse.js"></script>

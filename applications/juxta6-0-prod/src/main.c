@@ -531,6 +531,26 @@ void juxta_ble_clear_memory_requested(void)
 	(void)k_work_submit_to_queue(&nor_wq, &clear_memory_work);
 }
 
+void juxta_ble_role_changed(void)
+{
+	int err;
+
+	err = juxta_id_format_from_bt(local_name, sizeof(local_name),
+				      juxta_settings_get()->is_basestation != 0U);
+	if (err != 0) {
+		LOG_WRN("role rename format (%d)", err);
+		return;
+	}
+
+	err = bt_set_name(local_name);
+	if (err != 0) {
+		LOG_WRN("bt_set_name(%s) (%d)", local_name, err);
+	} else {
+		LOG_INF("role identity → %s", local_name);
+	}
+	juxta_log_set_device_id(local_name);
+}
+
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
@@ -1192,12 +1212,18 @@ int main(void)
 		return err;
 	}
 
-	err = juxta_id_fill_from_bt(local_name, sizeof(local_name));
+	err = juxta_settings_init(NULL);
+	if (err) {
+		LOG_WRN("settings_init (%d)", err);
+	}
+
+	err = juxta_id_format_from_bt(local_name, sizeof(local_name),
+				      juxta_settings_get()->is_basestation != 0U);
 	if (err) {
 		return err;
 	}
 
-	/* GAP Device Name must be JX_XXXXXX — iOS re-reads this and replaces scan name. */
+	/* GAP Device Name must be JX_/JB_XXXXXX — iOS re-reads this and replaces scan name. */
 	err = bt_set_name(local_name);
 	if (err) {
 		LOG_WRN("bt_set_name(%s) (%d)", local_name, err);
@@ -1205,9 +1231,12 @@ int main(void)
 		LOG_INF("bt_set_name → %s", local_name);
 	}
 
-	err = juxta_settings_init(local_name);
-	if (err) {
-		LOG_WRN("settings_init (%d)", err);
+	/* Default empty subject_id to the role-flavored identity. */
+	if (juxta_settings_get()->subject_id[0] == '\0') {
+		struct juxta_settings s = *juxta_settings_get();
+
+		(void)snprintf(s.subject_id, sizeof(s.subject_id), "%s", local_name);
+		(void)juxta_settings_update(&s);
 	}
 
 	err = init_with_retry("juxta_log_init", log_init_once);

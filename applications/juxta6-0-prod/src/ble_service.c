@@ -118,7 +118,8 @@ int juxta_ble_get_device_id(char *device_id)
 		return -EINVAL;
 	}
 
-	return juxta_id_fill_from_bt(device_id, JUXTA_ID_LEN);
+	return juxta_id_format_from_bt(device_id, JUXTA_ID_LEN,
+				       juxta_settings_get()->is_basestation != 0U);
 }
 
 static int extract_string(const char *json, const char *key, char *out, size_t out_size)
@@ -279,12 +280,14 @@ static int generate_node_response(char *buffer, size_t buffer_size)
 						   "\"advInterval\":%u,"
 						   "\"scanInterval\":%u,"
 						   "\"inactivityMultiplier\":%u,"
-						   "\"motionLogging\":%s}",
+						   "\"motionLogging\":%s,"
+						   "\"isBaseStation\":%s}",
 						   JUXTA_FIRMWARE_VERSION, battery_level, memory_level, device_id,
 						   settings->subject_id, settings->experiment, settings->adv_interval_s,
 						   settings->scan_interval_s,
 						   (unsigned int)settings->inactivity_multiplier,
-						   settings->motion_logging != 0U ? "true" : "false");
+						   settings->motion_logging != 0U ? "true" : "false",
+						   settings->is_basestation != 0U ? "true" : "false");
 
 	if (written < 0 || written >= (int)buffer_size)
 	{
@@ -539,6 +542,7 @@ static int apply_gateway_command(const char *json)
 	char device_id[JUXTA_DEVICE_ID_LEN];
 	uint32_t value;
 	bool changed = false;
+	bool role_changed = false;
 	bool this_loc_valid = false;
 	float this_lat = 0.0f;
 	float this_lon = 0.0f;
@@ -679,6 +683,24 @@ static int apply_gateway_command(const char *json)
 		}
 	}
 
+	{
+		bool base_val;
+		uint8_t prev_base = juxta_settings_get()->is_basestation;
+
+		if (extract_bool(json, "isBaseStation", &base_val) == 0)
+		{
+			next.is_basestation = base_val ? 1U : 0U;
+			if (next.is_basestation != prev_base) {
+				/* Identity change: always erase NOR (even if JSON omitted clearMemory). */
+				LOG_INF("isBaseStation %u→%u — clearMemory + rename",
+					(unsigned int)prev_base, (unsigned int)next.is_basestation);
+				juxta_ble_clear_memory_requested();
+				role_changed = true;
+				changed = true;
+			}
+		}
+	}
+
 	if (changed)
 	{
 		int rc = juxta_settings_update(&next);
@@ -690,11 +712,16 @@ static int apply_gateway_command(const char *json)
 		const struct juxta_settings *a = juxta_settings_get();
 
 		LOG_INF("gateway settings saved: scan=%u adv=%u vitals=%u inactivity_multiplier=%u "
-				"motion_logging=%u subject=\"%s\" experiment=\"%s\" loc_valid=%u",
+				"motion_logging=%u base=%u subject=\"%s\" experiment=\"%s\" loc_valid=%u",
 				a->scan_interval_s, a->adv_interval_s, a->vitals_interval_s,
 				(unsigned int)a->inactivity_multiplier,
-				(unsigned int)a->motion_logging, a->subject_id, a->experiment,
+				(unsigned int)a->motion_logging, (unsigned int)a->is_basestation,
+				a->subject_id, a->experiment,
 				(unsigned int)a->location_valid);
+		if (role_changed) {
+			juxta_ble_role_changed();
+			(void)juxta_ble_get_device_id(device_id);
+		}
 		if (production_ready)
 		{
 			(void)juxta_log_append_event(log_ctx, a, device_id, "settings_changed",

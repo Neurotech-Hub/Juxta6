@@ -4,19 +4,18 @@
 #include <stdint.h>
 
 #define JUXTA_PRODUCT_NAME "Juxta6-0"
-#define JUXTA_FIRMWARE_VERSION "6.4.0"
-/* v8: JXV temp_c + humidity from BME688 one-shot (one decimal); vitals
- * interval floor 60 s. JXS has latitude,longitude; JXB/JXV use day-relative
- * sec; JXB drops observer / JX_ peer prefix. */
-#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v8"
-#define JUXTA_LOGGING_VERSION 8
+#define JUXTA_FIRMWARE_VERSION "6.5.0"
+/* v9: Mobile (JX_) / Base (JB_) identity; JXB peer_id is X|B + 6 hex.
+ * v8: JXV temp_c + humidity; vitals floor 60 s; JXS lat/lon; day-relative sec. */
+#define JUXTA_LOG_SCHEMA "jxta-nor-csv-v9"
+#define JUXTA_LOGGING_VERSION 9
 
 #define JUXTA_DEVICE_ID_LEN 10
 #define JUXTA_SUBJECT_ID_LEN 32
 #define JUXTA_EXPERIMENT_LEN 32
 
 #define JUXTA_DEFAULT_SCAN_INTERVAL_S 30U /* cadence between 1 s scan bursts */
-#define JUXTA_DEFAULT_ADV_INTERVAL_S 5U   /* cadence between 1 s adv bursts */
+#define JUXTA_DEFAULT_ADV_INTERVAL_S 2U   /* cadence between 1 s adv bursts */
 #define JUXTA_DEFAULT_VITALS_INTERVAL_S 60U
 #define JUXTA_MIN_VITALS_INTERVAL_S 60U /* hard floor — never denser than 1/min */
 #define JUXTA_MAX_BLE_INTERVAL_S 120U

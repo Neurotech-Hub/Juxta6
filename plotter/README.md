@@ -1,6 +1,6 @@
 # JUXTA Plotter
 
-Client-side plotting for **Juxta6-0** Tag daily CSV exports (`jxta-nor-csv-v8`). Drop files into the page for interactive plots, a system-event table, and a shareable summary. Everything runs in the browser — no server, no data leaves your machine.
+Client-side plotting for **Juxta6-0** Tag daily CSV exports (`jxta-nor-csv-v9`). Drop files into the page for interactive plots, a system-event table, and a shareable summary. Everything runs in the browser — no server, no data leaves your machine.
 
 ## Brand / styling
 
@@ -9,14 +9,14 @@ The UI follows [`brand/JUXTA_BRAND.md`](../brand/JUXTA_BRAND.md) as a dark-navy 
 - `css/tokens.css` — brand tokens (palette, surfaces, gradient, radii, spacing, type). Edit here first; `style.css` only consumes semantic aliases.
 - `css/style.css` — layout and components (lockup header, drop zone, cards, table, print). The gradient is used once, on the primary CTA.
 - `js/plots.js` — `BRAND` palette and `PLOT_THEMES` (dark on screen, light for print). `app.js` swaps themes on `beforeprint` / `afterprint` since Plotly bakes colors into SVG.
-- `assets/juxta_symbol.png` — 256 px copy of the primary symbol (header + favicon). GitHub Pages deploys only `plotter/`, so the asset must live here.
+- `assets/juxta_symbol.png` — 256 px copy of the primary symbol (header + favicon). `juxta_tag_mobile.png` / `juxta_tag_base.png` — role artwork above Summary (`JB_*` → base). GitHub Pages deploys only `plotter/`, so assets must live here.
 - Fonts (Space Grotesk, Plus Jakarta Sans) load from Google Fonts with system fallbacks.
 
 **Live (GitHub Pages):** after Pages is enabled on this repo (Actions source), the site is served from this folder:
 
 `https://neurotech-hub.github.io/Juxta6/`
 
-## Supported files (schema v8)
+## Supported files (schema v9)
 
 | Prefix | Contents | Columns |
 | --- | --- | --- |
@@ -24,11 +24,11 @@ The UI follows [`brand/JUXTA_BRAND.md`](../brand/JUXTA_BRAND.md) as a dark-navy 
 | `JXB` | BLE peer sightings | `sec,peer_id,rssi` |
 | `JXS` | System / lifecycle events | absolute `unix` + event columns + `latitude,longitude` |
 
-Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UTC seconds; absolute time is UTC midnight of the filename date + `sec`. JXV `temp_c` / `humidity` are BME688 one-shot values at one decimal. JXB `peer_id` has no `JX_` prefix. JXS lat/lon are filled on `time_set` (this sync) and `day_start` (last-known); other events leave them blank. Multiple days merge and sort by time; mixed `device_id` values in JXS trigger a warning.
+Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UTC seconds; absolute time is UTC midnight of the filename date + `sec`. JXV `temp_c` / `humidity` are BME688 one-shot values at one decimal. JXB `peer_id` is **7 characters**: `X` (mobile) or `B` (base) + 6 MAC hex; the plotter reconstructs `JX_`/`JB_` labels on the BLE Peers axis. JXS lat/lon are filled on `time_set` (this sync) and `day_start` (last-known); other events leave them blank. Multiple days merge and sort by time; mixed `device_id` values in JXS trigger a warning.
 
 ## What it shows
 
-- **Summary** — four cards: Duration (start/end), Environment (temp/humidity), Action (motion/peers), Firmware
+- **Summary** — role artwork (mobile/base) above cards: Device (ID + firmware), Duration, Environment, Action
 - **Last location** — Leaflet map marker from the latest JXS lat/lon (`time_set` / `day_start`)
 - **Activity** — motion over time
 - **Battery** — voltage over time
@@ -39,7 +39,7 @@ Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UT
 
 Timezone dropdown: Central, Eastern, or UTC (default). Data is recorded in UTC; selecting UTC shows timestamps as stored.
 
-**Demo:** use **Load demo data** (lower right under the drop zone) for a synthetic `jxta-nor-csv-v8` day (`JX_A1B2C3`, ~3 h production) without uploading files.
+**Demo:** use **Load demo data** (lower right under the drop zone) for a synthetic `jxta-nor-csv-v9` day (`JX_A1B2C3`, ~3 h production, includes a `B*` base peer) without uploading files.
 
 Map tiles load from Esri (dark canvas) when a package has coordinates (approx. location visible to the tile CDN; CSV stays in-browser).
 

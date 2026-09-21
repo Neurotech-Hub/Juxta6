@@ -61,5 +61,7 @@ void juxta_ble_reset_requested(void);
  * doing it inline blows past the BLE supervision timeout and stalls every
  * other consumer of the BT RX queue). */
 void juxta_ble_clear_memory_requested(void);
+/* Role (Mobile/Base) changed — main rebuilds ADV name / log device_id. */
+void juxta_ble_role_changed(void);
 
 #endif /* JUXTA_BLE_SERVICE_H_ */

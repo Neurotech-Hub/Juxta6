@@ -1,9 +1,9 @@
-/* Synthetic jxta-nor-csv-v8 package for juxta6-0-prod demos (offline-safe). */
+/* Synthetic jxta-nor-csv-v9 package for juxta6-0-prod demos (offline-safe). */
 
 (function (global) {
   const DEMO_DATE = "20260921";
   const DEVICE = "JX_A1B2C3";
-  const FW = "6.4.0";
+  const FW = "6.5.0";
   const LAT = "38.635883";
   const LON = "-90.255356";
   /* UTC midnight 2026-09-21 */
@@ -24,7 +24,7 @@
       "demo-trial",
       FW,
       "30",
-      "5",
+      "2",
       "60",
       DEVICE,
       lat,
@@ -65,7 +65,8 @@
   }
 
   function buildJxb() {
-    const peers = ["AABBCC", "DDEEFF", "112233"];
+    /* Storage form: X|B + 6 hex (plotter reconstructs JX_/JB_ for display). */
+    const peers = ["XAABBCC", "XDDEEFF", "B112233"];
     const lines = ["sec,peer_id,rssi"];
     const end = PROD_START_SEC + HOURS * 3600;
     for (let sec = PROD_START_SEC + 15; sec < end; sec += SCAN_INTERVAL_S) {

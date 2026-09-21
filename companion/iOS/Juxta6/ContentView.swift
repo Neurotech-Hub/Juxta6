@@ -269,6 +269,48 @@ final class GatewayLocationHelper: NSObject, CLLocationManagerDelegate {
 }
 
 // MARK: - Device Info
+
+/// ADV names are `JX_`/`JB_` + 6 hex; JXB stores `X`/`B` + 6 hex.
+enum JuxtaPeerID {
+    static func isDeviceFolderID(_ id: String) -> Bool {
+        id.hasPrefix("JX_") || id.hasPrefix("JB_")
+    }
+
+    /// True for a full ADV identity: `JX_`/`JB_` + exactly 6 hex digits.
+    static func isAdvIdentity(_ id: String) -> Bool {
+        let p = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard p.count == 9, isDeviceFolderID(p) else { return false }
+        let hex = p.dropFirst(3)
+        return hex.count == 6 && hex.allSatisfy { $0.isHexDigit }
+    }
+
+    /// Reconstruct user-facing ADV name from a JXB `peer_id` cell.
+    static func displayName(fromStored peer: String) -> String {
+        let p = peer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if p.hasPrefix("JX_") || p.hasPrefix("JB_") { return p }
+        if p.count == 7 {
+            let role = p.first!
+            let hex = String(p.dropFirst())
+            if role == "X" || role == "x" { return "JX_\(hex)" }
+            if role == "B" || role == "b" { return "JB_\(hex)" }
+        }
+        if p.count == 6 { return "JX_\(p)" } // legacy v8 bare hex
+        return p
+    }
+
+    /// Swap or set Mobile/Base ADV prefix, preserving the 6-hex suffix when present.
+    static func withRole(from name: String, isBaseStation: Bool) -> String {
+        let prefix = isBaseStation ? "JB_" : "JX_"
+        if name.count >= 9, name.hasPrefix("JX_") || name.hasPrefix("JB_") {
+            return prefix + String(name.suffix(6))
+        }
+        if name.count == 6 { return prefix + name }
+        if name.hasPrefix("JX_") { return name.replacingOccurrences(of: "JX_", with: prefix) }
+        if name.hasPrefix("JB_") { return name.replacingOccurrences(of: "JB_", with: prefix) }
+        return prefix + name
+    }
+}
+
 struct DiscoveredDevice: Identifiable {
     let id = UUID()
     let peripheral: CBPeripheral
@@ -407,7 +449,7 @@ class PackageStore: ObservableObject {
                 let isDir = (try? deviceDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 guard isDir else { continue }
                 let deviceID = deviceDir.lastPathComponent
-                guard deviceID.hasPrefix("JX_") else { continue }
+                guard JuxtaPeerID.isDeviceFolderID(deviceID) else { continue }
 
                 let csvFiles = (try? fm.contentsOfDirectory(at: deviceDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
                 for fileURL in csvFiles {
@@ -483,6 +525,8 @@ class AppState: ObservableObject {
     @Published var isConnected = false
     @Published var discoveredDevices: [DiscoveredDevice] = []
     @Published var connectedDevice: CBPeripheral?
+    /// Maskable GAP name (CoreBluetooth `peripheral.name` is not writable after role Push).
+    @Published var connectedDeviceDisplayName: String = ""
     @Published var connectedDeviceRSSI: Int = 0
     @Published var terminalLog: [String] = []
     @Published var connectionStatus = "Ready"
@@ -534,12 +578,13 @@ class AppState: ObservableObject {
     }
 
     func resetSettingsToDefaults() {
-        advInterval = 5
+        advInterval = 2
         scanInterval = 30
         advOff = false
         scanOff = false
         inactivityMultiplier = 1
         motionOff = false
+        isBaseStation = false
         log("Settings reset to defaults")
     }
     @Published var memoryLevel: Int? = nil
@@ -549,7 +594,7 @@ class AppState: ObservableObject {
     // When adding fields here, update SettingsSnapshot + applyDebugDeviceSettingsSession() (ladybug).
     @Published var subjectID: String = ""
     @Published var experiment: String = ""
-    @Published var advInterval = 5
+    @Published var advInterval = 2
     @Published var scanInterval = 30
     @Published var advOff = false
     @Published var scanOff = false
@@ -558,6 +603,8 @@ class AppState: ObservableObject {
     @Published var inactivityMultiplier = 1
     /// When true, motion logging is disabled (`motionLogging: false`).
     @Published var motionOff = false
+    /// Base Station advertises as `JB_*`; Mobile Tag as `JX_*` (default).
+    @Published var isBaseStation = false
 
     static func clampAdvOrScanInterval(_ value: Int) -> Int {
         if value <= 0 { return 0 }
@@ -580,6 +627,7 @@ class AppState: ObservableObject {
         var scanOff: Bool
         var inactivityMultiplier: Int
         var motionOff: Bool
+        var isBaseStation: Bool
     }
     @Published private var settingsBaseline: SettingsSnapshot? = nil
 
@@ -592,7 +640,8 @@ class AppState: ObservableObject {
             advOff: advOff,
             scanOff: scanOff,
             inactivityMultiplier: inactivityMultiplier,
-            motionOff: motionOff
+            motionOff: motionOff,
+            isBaseStation: isBaseStation
         )
     }
 
@@ -611,6 +660,7 @@ class AppState: ObservableObject {
         scanOff = baseline.scanOff
         inactivityMultiplier = baseline.inactivityMultiplier
         motionOff = baseline.motionOff
+        isBaseStation = baseline.isBaseStation
         pushFeedback = ""
         log("Settings edits discarded (restored from device baseline)")
     }
@@ -621,15 +671,17 @@ class AppState: ObservableObject {
         // Mirror production defaults / a plausible node payload — same fields as SettingsSnapshot.
         subjectID = "DEBUG"
         experiment = "debug"
-        advInterval = 5
+        advInterval = 2
         scanInterval = 30
         advOff = false
         scanOff = false
         inactivityMultiplier = 1
         motionOff = false
+        isBaseStation = false
         firmwareVersion = "6.0.0-debug"
         hasFullNodeDeviceSettings = true
         isDebugDeviceSession = true
+        connectedDeviceDisplayName = "JX_DEBUG0"
         pushFeedback = ""
         captureSettingsBaseline()
         log("DEBUG: Seeded device settings baseline (keep applyDebugDeviceSettingsSession in sync with SettingsSnapshot)")
@@ -642,6 +694,8 @@ class AppState: ObservableObject {
         isDebugDeviceSession = false
         pushFeedback = ""
         firmwareVersion = nil
+        connectedDeviceDisplayName = ""
+        isBaseStation = false
         log("DEBUG: Cleared device settings baseline")
     }
 
@@ -662,9 +716,28 @@ class AppState: ObservableObject {
             advOff: advOff,
             scanOff: scanOff,
             inactivityMultiplier: inactivityMultiplier,
-            motionOff: motionOff
+            motionOff: motionOff,
+            isBaseStation: isBaseStation
         )
         return current != baseline
+    }
+
+    /// True when Edit role differs from the last node/Push baseline.
+    var isBaseStationDirty: Bool {
+        guard let baseline = settingsBaseline else { return false }
+        return baseline.isBaseStation != isBaseStation
+    }
+
+    /// If Subject still looks like an ADV identity (`JX_`/`JB_` + 6 hex), rewrite
+    /// its prefix to match the current role. Custom subjects are left alone.
+    @discardableResult
+    func syncSubjectPrefixWithRoleIfNeeded() -> Bool {
+        let trimmed = subjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard JuxtaPeerID.isAdvIdentity(trimmed) else { return false }
+        let next = JuxtaPeerID.withRole(from: trimmed, isBaseStation: isBaseStation)
+        guard next != trimmed else { return false }
+        subjectID = next
+        return true
     }
     
     private var clearDevicesTimer: Timer?
@@ -958,6 +1031,12 @@ class BLEManager: NSObject, ObservableObject {
             return
         }
 
+        let roleChanged = appState.isBaseStationDirty
+        // Align subject prefix with role when it is still a default ADV identity.
+        if roleChanged {
+            _ = appState.syncSubjectPrefixWithRoleIfNeeded()
+        }
+
         let trimmedSubject = appState.subjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         appState.subjectID = trimmedSubject
 
@@ -968,8 +1047,13 @@ class BLEManager: NSObject, ObservableObject {
             "advInterval": adv,
             "scanInterval": scan,
             "inactivityMultiplier": AppState.normalizedInactiveScanMult(appState.inactivityMultiplier),
-            "motionLogging": !appState.motionOff
+            "motionLogging": !appState.motionOff,
+            "isBaseStation": appState.isBaseStation
         ]
+
+        if roleChanged {
+            command["clearMemory"] = true
+        }
 
         let trimmedExperiment = appState.experiment.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedExperiment.isEmpty {
@@ -978,6 +1062,15 @@ class BLEManager: NSObject, ObservableObject {
 
         // Ladybug session: no gateway — accept the local edit as if Push succeeded.
         if appState.isDebugDeviceSession {
+            if roleChanged {
+                appState.connectedDeviceDisplayName = JuxtaPeerID.withRole(
+                    from: appState.connectedDeviceDisplayName.isEmpty
+                        ? "JX_DEBUG0" : appState.connectedDeviceDisplayName,
+                    isBaseStation: appState.isBaseStation)
+                appState.memoryLevel = 0
+                appState.availablePackages = []
+                appState.selectedPackageDate = ""
+            }
             appState.pushFeedback = "Pushed"
             appState.captureSettingsBaseline()
             appState.log("DEBUG: Simulated settings push \(command)")
@@ -993,6 +1086,19 @@ class BLEManager: NSObject, ObservableObject {
         }
 
         if writeGatewayJSONObject(command) {
+            if roleChanged {
+                let current = appState.connectedDeviceDisplayName.isEmpty
+                    ? (appState.connectedDevice?.name ?? "JX_XXXXXX")
+                    : appState.connectedDeviceDisplayName
+                appState.connectedDeviceDisplayName = JuxtaPeerID.withRole(
+                    from: current, isBaseStation: appState.isBaseStation)
+                appState.memoryLevel = 0
+                appState.availablePackages = []
+                appState.selectedPackageDate = ""
+                appState.isTransferringPackage = false
+                appState.transferProgress = ""
+                appState.log("Role changed — memory cleared; name \(appState.connectedDeviceDisplayName)")
+            }
             appState.pushFeedback = "Pushed"
             appState.captureSettingsBaseline()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak appState] in
@@ -1151,6 +1257,7 @@ extension BLEManager: CBCentralManagerDelegate {
         
         appState.isConnected = true
         appState.connectedDevice = peripheral
+        appState.connectedDeviceDisplayName = peripheral.name ?? ""
         appState.connectionStatus = peripheral.name ?? "Unknown"
         appState.log("CONNECTED: \(peripheral.name ?? "Unknown")")
         
@@ -1177,6 +1284,7 @@ extension BLEManager: CBCentralManagerDelegate {
         appState.endShelfDisconnectAwait()
         appState.isConnected = false
         appState.connectedDevice = nil
+        appState.connectedDeviceDisplayName = ""
         appState.connectionStatus = "Disconnected"
         
         if let error = error {
@@ -1256,7 +1364,12 @@ extension BLEManager: CBPeripheralDelegate {
             }
         }
 
-        let connectedDeviceID = self.appState.connectedDevice?.name ?? "JX_UNKNOWN"
+        let connectedDeviceID: String = {
+            if !self.appState.connectedDeviceDisplayName.isEmpty {
+                return self.appState.connectedDeviceDisplayName
+            }
+            return self.appState.connectedDevice?.name ?? "JX_UNKNOWN"
+        }()
         var packageMap: [String: DailyPackage] = [:]
         var jxCsvCount = 0
         for name in namesInListing {
@@ -1463,8 +1576,21 @@ extension BLEManager: CBPeripheralDelegate {
                             }
                         }
 
+                        if let isBase = json["isBaseStation"] as? Bool {
+                            DispatchQueue.main.async {
+                                self.appState.isBaseStation = isBase
+                            }
+                        } else {
+                            DispatchQueue.main.async {
+                                self.appState.isBaseStation = false
+                            }
+                        }
+
                         if let deviceId = json["deviceId"] as? String {
-                            appState.log("Device ID: \(deviceId)")
+                            DispatchQueue.main.async {
+                                self.appState.connectedDeviceDisplayName = deviceId
+                                self.appState.log("Device ID: \(deviceId)")
+                            }
                         }
 
                         let firmware = json["firmwareVersion"] as? String
@@ -1940,7 +2066,9 @@ struct ContentView: View {
             // Header with disconnect
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(appState.connectedDevice?.name ?? "Not Connected")
+                    Text(appState.connectedDeviceDisplayName.isEmpty
+                         ? (appState.connectedDevice?.name ?? "Not Connected")
+                         : appState.connectedDeviceDisplayName)
                         .font(.system(size: 20, weight: .semibold, design: .default))
                         .foregroundColor(.white)
                     
@@ -2053,7 +2181,7 @@ struct ContentView: View {
                     appState.resetSettingsToDefaults()
                 }
             } message: {
-                Text("Advertising interval will be set to 5 s, scanning interval to 30 s, inactive scan multiplier to 1×, with motion logging on. Tap Push to send these values to the device.")
+                Text("Advertising interval will be set to 2 s, scanning interval to 30 s, inactive scan multiplier to 1×, with motion logging on and role Mobile Tag. Tap Push to send these values to the device.")
             }
             .alert("Unpushed Settings", isPresented: $showUnpushedSettingsAlert) {
                 Button("Return to Edit", role: .cancel) { }
@@ -2126,24 +2254,20 @@ struct ContentView: View {
                 value: appState.experiment.isEmpty ? "—" : appState.experiment
             )
             deviceSettingsSummaryRow(
-                label: "Adv",
-                value: appState.advOff ? "Off" : "\(appState.advInterval)s",
-                monospaced: true
+                label: "Role",
+                value: appState.isBaseStation ? "Base Station" : "Mobile Tag"
             )
-            deviceSettingsSummaryRow(
-                label: "Scan",
-                value: appState.scanOff ? "Off" : "\(appState.scanInterval)s",
-                monospaced: true
+            deviceSettingsSummaryPairRow(
+                leftLabel: "Adv",
+                leftValue: appState.advOff ? "Off" : "\(appState.advInterval)s",
+                rightLabel: "Scan",
+                rightValue: appState.scanOff ? "Off" : "\(appState.scanInterval)s"
             )
-            deviceSettingsSummaryRow(
-                label: "Inactive Mult",
-                value: "\(appState.inactivityMultiplier)×",
-                monospaced: true
-            )
-            deviceSettingsSummaryRow(
-                label: "Motion",
-                value: appState.motionOff ? "Off" : "On",
-                monospaced: true
+            deviceSettingsSummaryPairRow(
+                leftLabel: "Motion",
+                leftValue: appState.motionOff ? "Off" : "On",
+                rightLabel: "Inactive Mult",
+                rightValue: "\(appState.inactivityMultiplier)×"
             )
         }
         .padding(12)
@@ -2173,6 +2297,34 @@ struct ContentView: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
+    }
+
+    private func deviceSettingsSummaryPairRow(
+        leftLabel: String,
+        leftValue: String,
+        rightLabel: String,
+        rightValue: String
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            deviceSettingsSummaryPairHalf(label: leftLabel, value: leftValue)
+            deviceSettingsSummaryPairHalf(label: rightLabel, value: rightValue)
+        }
+    }
+
+    private func deviceSettingsSummaryPairHalf(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(value)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Device Settings editor (sheet)
@@ -2243,6 +2395,27 @@ struct ContentView: View {
                         .font(.system(size: 13))
                         .autocorrectionDisabled(true)
                         .textInputAutocapitalization(.never)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Role")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    Picker("Role", selection: Binding(
+                        get: { appState.isBaseStation },
+                        set: { newValue in
+                            appState.isBaseStation = newValue
+                            _ = appState.syncSubjectPrefixWithRoleIfNeeded()
+                        }
+                    )) {
+                        Text("Mobile Tag").tag(false)
+                        Text("Base Station").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Role change clears memory and advertisement prefix.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 HStack(spacing: 8) {
@@ -3061,12 +3234,12 @@ private func vitalsRow(from cols: [String], map: CsvColumnMap, id: Int, dateKey:
 }
 
 private func bleRow(from cols: [String], map: CsvColumnMap, id: Int, dateKey: String) -> BLERow? {
-    // JXB (jxta-nor-csv-v8): sec,peer_id,rssi
+    // JXB (jxta-nor-csv-v9): sec,peer_id,rssi — peer_id is X|B + 6 hex
     guard let secIdx = map.index(of: "sec"), secIdx < cols.count,
           let sec = parseCsvInt(cols[secIdx]),
           let date = dateFromUTCDayKey(dateKey, sec: sec) else { return nil }
     guard let peerIdx = map.index(of: "peer_id"), peerIdx < cols.count else { return nil }
-    let peer = cols[peerIdx].trimmingCharacters(in: .csvCellTrimming)
+    let peer = JuxtaPeerID.displayName(fromStored: cols[peerIdx].trimmingCharacters(in: .csvCellTrimming))
     guard !peer.isEmpty else { return nil }
     guard let rssiIdx = map.index(of: "rssi"), rssiIdx < cols.count,
           let rssi = parseCsvInt(cols[rssiIdx]) else { return nil }
@@ -3571,7 +3744,7 @@ struct InfoAboutView: View {
         "Shelf mode is the default after boot or a companion Reset: radio off, white LED chirps ~20 ms every 5 s so you can tell the Tag still needs a connection.",
         "Hold the button ~3 s to leave shelf: LED solid ON on press, off at 3 s as a \"release now\" cue, then a soft reboot into sync (slow blink 50 ms on / 450 ms off). Holds under 3 s are false positives and chirps resume.",
         "In Juxta6, scan and connect. The LED stays solid ON for the duration of the BLE connection.",
-        "Time sync runs automatically; device settings populate the app. Tap Edit to change them, then Push to send changes back.",
+        "Time sync runs automatically; device settings populate the app. Tap Edit to change them, then Push to send changes back. Mobile Tag (default) advertises as JX_*; Base Station as JB_* — changing role clears on-device memory.",
         "Disconnect to enter production: 5× blink, LED off, then vitals/logging run with LED off throughout.",
         "Return to shelf during production with a ~3 s button hold: solid ON → off at 3 s → 5× blink → grace period → shelf chirps resume. A shelf_entry row is written to JXS.",
         "Hold ≥ 10 s only to enter DFU: LED off at 3 s, then soft reboot into 3× blink and fast blink. Release between 3 s and 10 s if you only want sync, not firmware update.",
