@@ -37,7 +37,7 @@ Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
 | 8 | `tag-id` | `juxta_name=JX_…`, `juxta_profile=mobile` |
 | 9 | `tag-discover` | Two identical images; mutual `peer_seen` / `peer_lost` |
 | 10 | `tag-cs` | LED green=auto / blue=initiator / red=reflector; RTT median distance (window=9); BTN1 forces role |
-| 11 | `tag-rssi-adv` | LED red=advertiser / blue=scanner; RTT `rssi_pkt` with seq + rx_ant (ANT1/ANT2 mux); no CS |
+| 11 | `tag-rssi-adv` | LED red=advertiser / scanner blue=no peer green=peer; 500 ms×2 dual-ant scan like prod; RTT max RSSI/peer; TX +8 dBm; no CS |
 
 ### Wave C — product (M2)
 
