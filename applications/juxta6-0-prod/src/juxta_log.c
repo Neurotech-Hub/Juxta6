@@ -65,6 +65,8 @@ static char s_log_calendar_ymd[9];
 /* Long-op tick hook (see juxta_log_set_long_op_tick in juxta_log.h). */
 static void (*s_long_op_tick)(void);
 
+static int format_regions(struct juxta_log_context *ctx, bool full);
+
 void juxta_log_set_long_op_tick(void (*tick)(void))
 {
 	s_long_op_tick = tick;
@@ -1078,7 +1080,7 @@ int juxta_log_init(struct juxta_log_context *ctx, const struct juxta_settings *s
 		/* Erase all regions; file creation is deferred until time is valid
 		 * and production init writes the first data (same as the normal path). */
 		ctx->initialized = true;
-		rc = juxta_log_format(ctx);
+		rc = format_regions(ctx, true);
 		goto out;
 	}
 
@@ -1128,47 +1130,100 @@ void juxta_log_set_device_id(const char *device_id)
 	}
 }
 
-static int erase_region(struct juxta_log_context *ctx, const struct log_region *region)
+#define NOR_SECTOR_SIZE 0x1000U
+#define NOR_BLOCK_SIZE 0x10000U
+
+static bool sector_is_blank(const struct juxta_log_context *ctx, uint32_t base)
 {
-	struct flash_pages_info page;
-	uint32_t pos = region->start;
-	uint32_t end = region->start + region->size;
+	static uint8_t buf[256];
+
+	for (uint32_t off = 0U; off < NOR_SECTOR_SIZE; off += sizeof(buf))
+	{
+		if (flash_read(ctx->flash, base + off, buf, sizeof(buf)) != 0)
+		{
+			return false;
+		}
+		for (size_t i = 0; i < sizeof(buf); i++)
+		{
+			if (buf[i] != 0xFFU)
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+/* Erase [start, end) using 64 KB blocks where aligned (SFDP lets the SPI NOR
+ * driver issue block erase) and 4 KB sectors at the edges. */
+static int erase_range(struct juxta_log_context *ctx, uint32_t start, uint32_t end)
+{
+	uint32_t pos = start;
 
 	while (pos < end)
 	{
-		int rc = flash_get_page_info_by_offs(ctx->flash, pos, &page);
+		uint32_t chunk = ((pos % NOR_BLOCK_SIZE) == 0U && (end - pos) >= NOR_BLOCK_SIZE)
+					 ? NOR_BLOCK_SIZE
+					 : NOR_SECTOR_SIZE;
+		int rc = flash_erase(ctx->flash, pos, chunk);
 
 		if (rc != 0)
 		{
 			return rc;
 		}
+		pos += chunk;
 
-		rc = flash_erase(ctx->flash, page.start_offset, page.size);
-		if (rc != 0)
-		{
-			return rc;
-		}
-		pos = page.start_offset + page.size;
-
-		/* Per-sector watchdog feed + yield.  Each 4 KB sector erase is
-		 * ~45 ms on this SPI NOR and the JXB region alone is ~3 MB
-		 * (~750 sectors → ~34 s of pure erase time).  The erase holds
-		 * the log mutex, so any main-loop iteration that touches the
-		 * logger can block for the duration — feed inline so the WDT
-		 * cannot trip mid-erase.  k_yield() also lets any other
-		 * higher-priority thread (BT RX servicing a disconnect, ISR
-		 * deferred work) make progress between sector erases. */
+		/* The erase holds the log mutex: feed the WDT inline and yield so
+		 * higher-priority threads progress between chunks. */
 		if (s_long_op_tick != NULL)
 		{
 			s_long_op_tick();
 		}
 		k_yield();
 	}
-
 	return 0;
 }
 
-int juxta_log_format(struct juxta_log_context *ctx)
+/* Rows are appended contiguously from region start, so only erase up to the
+ * first erased byte (sector-rounded). If the following sector is not blank the
+ * layout is unexpected — erase the whole region. */
+static int erase_region(struct juxta_log_context *ctx, const struct log_region *region, bool full)
+{
+	uint32_t region_end = region->start + region->size;
+	uint32_t used_end;
+	uint32_t end;
+
+	if (full || first_erased_offset(ctx, region, &used_end) != 0 ||
+	    used_end < region->start)
+	{
+		return erase_range(ctx, region->start, region_end);
+	}
+
+	end = region->start + ROUND_UP(used_end - region->start, NOR_SECTOR_SIZE);
+	if (end > region_end)
+	{
+		end = region_end;
+	}
+	if (end < region_end && !sector_is_blank(ctx, end))
+	{
+		LOG_WRN("%s: data past first erased byte — full region erase", region->prefix);
+		end = region_end;
+	}
+
+	LOG_INF("%s: erasing %u KB", region->prefix, (unsigned int)((end - region->start) / 1024U));
+	return erase_range(ctx, region->start, end);
+}
+
+static atomic_t s_log_busy;
+
+bool juxta_log_busy(void)
+{
+	return atomic_get(&s_log_busy) != 0;
+}
+
+/* full: erase entire regions (unrecognised NOR at boot); otherwise only the
+ * used extent of each region (clearMemory). */
+static int format_regions(struct juxta_log_context *ctx, bool full)
 {
 	/* Erase all NOR CSV regions and reset in-memory state only.
 	 * File creation and provenance event logging are deferred to the caller
@@ -1179,13 +1234,14 @@ int juxta_log_format(struct juxta_log_context *ctx)
 		return -EINVAL;
 	}
 
+	atomic_set(&s_log_busy, 1);
 	LOG_LOCK();
 
 	int rc = 0;
 
 	for (size_t i = 0; i < ARRAY_SIZE(regions); i++)
 	{
-		rc = erase_region(ctx, &regions[i]);
+		rc = erase_region(ctx, &regions[i], full);
 
 		if (rc != 0)
 		{
@@ -1213,7 +1269,13 @@ int juxta_log_format(struct juxta_log_context *ctx)
 		LOG_INF("NOR CSV regions erased — file creation deferred to next data write");
 	}
 	LOG_UNLOCK();
+	atomic_clear(&s_log_busy);
 	return rc;
+}
+
+int juxta_log_format(struct juxta_log_context *ctx)
+{
+	return format_regions(ctx, false);
 }
 
 int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_settings *settings,

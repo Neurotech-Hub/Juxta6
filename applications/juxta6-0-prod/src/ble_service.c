@@ -433,9 +433,21 @@ static int send_next_listing_chunk(void)
 	return 0;
 }
 
+/* While clearMemory is erasing, report an empty catalog instead of blocking
+ * the BT RX thread on the log mutex. */
+static int build_file_listing(void)
+{
+	if (juxta_log_busy())
+	{
+		memcpy(filename_listing, "EOF", 4U);
+		return 3;
+	}
+	return juxta_log_list_files(log_ctx, filename_listing, sizeof(filename_listing));
+}
+
 static int send_file_listing(struct bt_conn *conn)
 {
-	int len = juxta_log_list_files(log_ctx, filename_listing, sizeof(filename_listing));
+	int len = build_file_listing();
 
 	if (len < 0)
 	{
@@ -463,6 +475,11 @@ static int send_file_listing(struct bt_conn *conn)
 
 static int start_transfer(const char *name)
 {
+	if (juxta_log_busy())
+	{
+		return -EBUSY;
+	}
+
 	int rc = juxta_log_find_file(log_ctx, name, &transfer_entry);
 
 	if (rc != 0)
@@ -486,6 +503,14 @@ static void continue_file_transfer(void)
 
 	if (!transfer_active || !current_conn || !file_transfer_char_attr)
 	{
+		return;
+	}
+
+	if (juxta_log_busy())
+	{
+		LOG_WRN("transfer aborted: log format in progress");
+		transfer_eof_pending = false;
+		transfer_active = false;
 		return;
 	}
 
@@ -784,7 +809,7 @@ static ssize_t read_filename_char(struct bt_conn *conn, const struct bt_gatt_att
 {
 	ARG_UNUSED(attr);
 
-	int listing_len = juxta_log_list_files(log_ctx, filename_listing, sizeof(filename_listing));
+	int listing_len = build_file_listing();
 	if (listing_len < 0)
 	{
 		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);

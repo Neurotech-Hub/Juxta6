@@ -47,10 +47,14 @@ int juxta_log_init(struct juxta_log_context *ctx, const struct juxta_settings *s
 				   const char *device_id);
 /* Update the cached device_id used for JXS day_start / ble_name after a role change. */
 void juxta_log_set_device_id(const char *device_id);
+/* Erase the used extent of each CSV region (clearMemory) and reset the catalog. */
 int juxta_log_format(struct juxta_log_context *ctx);
+/* True while a format/erase is in progress; lock-free so BT callbacks can
+ * bail out instead of blocking on the log mutex. */
+bool juxta_log_busy(void);
 
 /* Optional progress hook called inside long internal loops (currently the
- * per-sector flash_erase loop inside juxta_log_format).  main.c registers
+ * flash_erase loop inside juxta_log_format).  main.c registers
  * prod_wdt_feed() here so the hardware watchdog stays fed during multi-second
  * clearMemory erases: the erase holds the log mutex, which can block the
  * main-loop feeds for the whole erase.  Implementations must be safe to call

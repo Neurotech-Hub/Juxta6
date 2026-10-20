@@ -86,7 +86,10 @@ static struct juxta_log_context log_ctx;
 static struct k_work clear_memory_work;
 static bool pending_shelf_exit;
 static bool pending_boot;
-static bool pending_user_connected;
+/* Set from BT callbacks; written to NOR only from main / gateway work so the
+ * BT RX thread never blocks on the log mutex (clearMemory holds it). */
+static atomic_t pending_user_connected;
+static atomic_t pending_user_disconnected;
 
 static struct bt_data ad_sync[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -509,10 +512,25 @@ void juxta_ble_datetime_synchronized(void)
 		pending_boot = false;
 		(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name, "boot", now);
 	}
-	if (pending_user_connected) {
-		pending_user_connected = false;
+	if (atomic_cas(&pending_user_connected, 1, 0)) {
 		(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name,
 					     "user_connected", now);
+	}
+}
+
+/* Main thread only: flush lifecycle rows deferred by the BT callbacks. */
+static void flush_pending_session_events(void)
+{
+	if (!log_ctx.initialized || !juxta_time_is_set()) {
+		return;
+	}
+	if (atomic_cas(&pending_user_connected, 1, 0)) {
+		(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name,
+					     "user_connected", juxta_time_now());
+	}
+	if (atomic_cas(&pending_user_disconnected, 1, 0)) {
+		(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name,
+					     "user_disconnected", juxta_time_now());
 	}
 }
 
@@ -561,12 +579,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	LOG_INF("Connected (sync)");
 	juxta_ble_connection_established(conn);
 	juxta_rtt_jxs("user_connected");
-	if (juxta_time_is_set() && log_ctx.initialized) {
-		(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name,
-					     "user_connected", juxta_time_now());
-	} else {
-		pending_user_connected = true;
-	}
+	atomic_set(&pending_user_connected, 1);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
@@ -582,14 +595,11 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	if (juxta_ble_datetime_synced()) {
 		juxta_rtt_jxs("user_disconnected");
-		if (log_ctx.initialized && juxta_time_is_set()) {
-			(void)juxta_log_append_event(&log_ctx, juxta_settings_get(), local_name,
-						     "user_disconnected", juxta_time_now());
-		}
+		atomic_set(&pending_user_disconnected, 1);
 		atomic_set(&enter_prod_req, 1);
 	} else {
 		atomic_set(&sync_restart_adv_req, 1);
-		pending_user_connected = false;
+		atomic_clear(&pending_user_connected);
 	}
 }
 
@@ -830,7 +840,8 @@ static void run_sync_phase(void)
 	atomic_set(&enter_prod_req, 0);
 	pending_shelf_exit = true;
 	pending_boot = true;
-	pending_user_connected = false;
+	atomic_clear(&pending_user_connected);
+	atomic_clear(&pending_user_disconnected);
 	juxta_rtt_jxs("shelf_exit");
 	juxta_rtt_jxs("boot");
 
@@ -866,13 +877,16 @@ static void run_sync_phase(void)
 		} else {
 			led_slow_blink_step(blink_on);
 			blink_on = !blink_on;
-			k_sleep(K_MSEC(blink_on ? 50 : 450));
+			/* blink_on now holds the next state: LED is lit when it is false. */
+			k_sleep(K_MSEC(blink_on ? 450 : 50));
 		}
 	}
 
 	(void)bt_le_adv_stop();
 	blink_n(5);
 	leds_off();
+	/* After the cue: may wait on the log mutex if a clearMemory erase is still running. */
+	flush_pending_session_events();
 }
 
 static void bme688_oneshot(float *temp_c, bool *temp_ok, float *humidity, bool *humidity_ok)
@@ -1002,9 +1016,11 @@ static void run_production(void)
 {
 	const struct juxta_settings *s;
 	int64_t next_vitals;
-	uint32_t last_scan_s;
-	uint32_t last_adv_s;
-	uint32_t now0;
+	/* Signed: the first-due seed (now0 - interval + phase) is negative when
+	 * production starts with uptime < interval. */
+	int64_t last_scan_s;
+	int64_t last_adv_s;
+	int64_t now0;
 	uint32_t scan_phase;
 	uint32_t adv_phase;
 	struct bt_le_scan_param scan_param = {
@@ -1026,16 +1042,16 @@ static void run_production(void)
 
 	s = juxta_settings_get();
 	next_vitals = k_uptime_get() + (int64_t)s->vitals_interval_s * 1000;
-	now0 = (uint32_t)(k_uptime_get() / 1000);
+	now0 = k_uptime_get() / 1000;
 	scan_phase = (s->scan_interval_s > 0U) ? prod_id_phase_s(s->scan_interval_s, 0xA5U) : 0U;
 	adv_phase = (s->adv_interval_s > 0U) ? prod_id_phase_s(s->adv_interval_s, 0x5AU) : 0U;
 	/* First due after `phase` seconds (not synchronized across devices). */
-	last_scan_s = now0 - ((s->scan_interval_s > 0U) ? s->scan_interval_s : 0U) + scan_phase;
-	last_adv_s = now0 - ((s->adv_interval_s > 0U) ? s->adv_interval_s : 0U) + adv_phase;
+	last_scan_s = now0 - (int64_t)s->scan_interval_s + (int64_t)scan_phase;
+	last_adv_s = now0 - (int64_t)s->adv_interval_s + (int64_t)adv_phase;
 	LOG_INF("radio phase scan+%us adv+%us (id stagger)", scan_phase, adv_phase);
 
 	while ((int)atomic_get(&app_mode) == JUXTA_OP_MODE_PROD) {
-		uint32_t now_s = (uint32_t)(k_uptime_get() / 1000);
+		int64_t now_s = k_uptime_get() / 1000;
 		bool scan_due;
 		bool adv_due;
 
@@ -1084,9 +1100,9 @@ static void run_production(void)
 		 * wins when both are due.
 		 */
 		scan_due = (s->scan_interval_s > 0U) &&
-			   ((uint64_t)now_s >= (uint64_t)last_scan_s + (uint64_t)s->scan_interval_s);
+			   (now_s >= last_scan_s + (int64_t)s->scan_interval_s);
 		adv_due = (s->adv_interval_s > 0U) &&
-			  ((uint64_t)now_s >= (uint64_t)last_adv_s + (uint64_t)s->adv_interval_s);
+			  (now_s >= last_adv_s + (int64_t)s->adv_interval_s);
 
 		if (scan_due) {
 			int scan_rc;

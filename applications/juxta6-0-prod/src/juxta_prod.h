@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define JUXTA_PRODUCT_NAME "Juxta6-0"
-#define JUXTA_FIRMWARE_VERSION "6.5.0"
+#define JUXTA_FIRMWARE_VERSION "6.5.1"
 /* v9: Mobile (JX_) / Base (JB_) identity; JXB peer_id is X|B + 6 hex.
  * v8: JXV temp_c + humidity; vitals floor 60 s; JXS lat/lon; day-relative sec. */
 #define JUXTA_LOG_SCHEMA "jxta-nor-csv-v9"
