@@ -14,6 +14,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/hwinfo.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/kernel.h>
@@ -911,6 +912,19 @@ static void bme688_oneshot(float *temp_c, bool *temp_ok, float *humidity, bool *
 	if (ret != 0 && ret != -EALREADY && ret != -ENOTSUP && ret != -ENOSYS) {
 		LOG_WRN("bme688 resume rc=%d", ret);
 		return;
+	}
+
+	/* Driver sets ctrl_gas_1 bit 4 (run_gas) at power-up and then waits
+	 * for new data, which includes the ~197 ms heater. Temperature and
+	 * humidity do not need it; clear the bit so this fetch is T/P/H only.
+	 * sample_fetch() does not write ctrl_gas_1 again. */
+	{
+		const struct i2c_dt_spec spec = I2C_DT_SPEC_GET(DT_NODELABEL(bme688));
+
+		ret = i2c_reg_write_byte_dt(&spec, 0x71, 0x00);
+		if (ret != 0) {
+			LOG_WRN("bme688 heater off rc=%d", ret);
+		}
 	}
 
 	ret = sensor_sample_fetch(bme);

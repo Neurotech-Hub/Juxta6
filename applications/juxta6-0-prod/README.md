@@ -5,7 +5,7 @@ dual-antenna advertising RSSI / ADXL motion + BME688 T/RH + VDD vitals /
 **MX25L3233 NOR CSV** / **MCUboot SMP BLE DFU** (nRF Device Manager).
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
-SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v9`** (firmware **6.5.1**):
+SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v9`** (firmware **6.5.2**):
 
 | File | Columns |
 |------|---------|
@@ -122,7 +122,7 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
 2. Hold **BTN1** 3–10 s → soft reboot → slow green blink, connectable Hublink
    advertising (`JX_*` / `JB_*` via `bt_set_name` + scan response; Hublink UUID in ADV).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.5.1`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
+   `6.5.2`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
    cadence); write **Gateway** JSON with `"timestamp": <unix>` plus optional
    `latitude` / `longitude` (and optional settings including `isBaseStation`).
    Open-Meteo outdoor temp is display-only on the phone — not sent to the tag.
@@ -138,7 +138,7 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
    where aligned); a non-blank sector past the used extent falls back to a full
    region erase. While erasing, LIST returns `EOF` and file requests are refused.
 
-iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.5.1` / schema v9).
+iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.5.2` / schema v9).
 
 ## RTT line shapes
 
