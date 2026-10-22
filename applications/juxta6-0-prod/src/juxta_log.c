@@ -438,8 +438,11 @@ static int read_line(struct juxta_log_context *ctx, uint32_t off, uint32_t end, 
 	return -ENOSPC;
 }
 
+/* saw_nul (optional): set when a 0x00 byte is seen before the end.  CSV text
+ * built with snprintf never contains NUL, so it marks an AND-overwritten or
+ * misread region (see find_end_verified). */
 static int find_eof_or_erased(struct juxta_log_context *ctx, uint32_t off, uint32_t end,
-							  uint32_t *file_end, bool *closed)
+							  uint32_t *file_end, bool *closed, bool *saw_nul)
 {
 	/* Chunked scan.  The previous implementation issued one flash_read() per
 	 * byte, which on nRF52840 SPI NOR is ~40-60 µs per call (CS toggle +
@@ -489,6 +492,11 @@ static int find_eof_or_erased(struct juxta_log_context *ctx, uint32_t off, uint3
 				return 0;
 			}
 
+			if (ch == 0x00U && saw_nul != NULL)
+			{
+				*saw_nul = true;
+			}
+
 			if (ch == (uint8_t)marker[matched])
 			{
 				matched++;
@@ -515,6 +523,102 @@ static int find_eof_or_erased(struct juxta_log_context *ctx, uint32_t off, uint3
 	*file_end = end;
 	*closed = false;
 	return 0;
+}
+
+#define END_SCAN_ATTEMPTS 3
+
+/* True when the bytes after an unclosed file's end — rest of its 256 B scan
+ * chunk plus the next chunk — are all erased (0xFF).  Appending over
+ * non-erased flash ANDs the new row into garbage. */
+static bool tail_is_erased(struct juxta_log_context *ctx, uint32_t file_end, uint32_t region_end)
+{
+	static uint8_t buf[512];
+	uint32_t stop = ROUND_UP(file_end + 1U, 256U) + 256U;
+
+	if (stop > region_end)
+	{
+		stop = region_end;
+	}
+	if (file_end >= stop)
+	{
+		return true;
+	}
+
+	size_t len = stop - file_end; /* <= 512 */
+
+	if (flash_read(ctx->flash, file_end, buf, len) != 0)
+	{
+		return false;
+	}
+	for (size_t i = 0; i < len; i++)
+	{
+		if (buf[i] != 0xFFU)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/* find_eof_or_erased() with sanity checks for the boot-time length re-measure.
+ * A scan counts as verified when two back-to-back scans agree, neither saw a
+ * 0x00 byte, and (for an unclosed file) the erased tail really is erased.
+ * Retries up to END_SCAN_ATTEMPTS times.  If it never verifies, returns 0 with
+ * the last scan's result and *suspect = true so the caller can latch the
+ * region (stop appending) instead of writing over unknown data. */
+static int find_end_verified(struct juxta_log_context *ctx, uint32_t off, uint32_t end,
+							 uint32_t *file_end, bool *closed, bool *suspect)
+{
+	*suspect = false;
+
+	for (int attempt = 0; attempt < END_SCAN_ATTEMPTS; attempt++)
+	{
+		bool nul_a = false;
+		bool nul_b = false;
+		bool closed_b;
+		uint32_t end_b;
+		int rc = find_eof_or_erased(ctx, off, end, file_end, closed, &nul_a);
+
+		if (rc != 0)
+		{
+			return rc;
+		}
+		rc = find_eof_or_erased(ctx, off, end, &end_b, &closed_b, &nul_b);
+		if (rc != 0)
+		{
+			return rc;
+		}
+
+		if (!nul_a && !nul_b && end_b == *file_end && closed_b == *closed &&
+			(*closed || tail_is_erased(ctx, *file_end, end)))
+		{
+			return 0;
+		}
+		LOG_WRN("End scan unverified at 0x%06x (attempt %d/%d): end %u/%u nul=%d/%d",
+				off, attempt + 1, END_SCAN_ATTEMPTS, *file_end, end_b, (int)nul_a,
+				(int)nul_b);
+	}
+
+	*suspect = true;
+	return 0;
+}
+
+/* Stop all appends to a region whose end cannot be trusted.  Reuses the
+ * region-full latch, so memoryLevel reads 100 %, main logs a JXS/RTT event,
+ * and clearMemory (format_regions) re-arms the region. */
+static void latch_region_suspect(struct juxta_log_context *ctx, const struct log_region *region,
+								 const char *path)
+{
+	int idx = region_index_for_type(region->type);
+
+	LOG_WRN("%s: end of %s could not be verified (NUL byte / unstable read / "
+			"non-erased tail) — latching region until clearMemory",
+			region->prefix, path);
+	if (idx >= 0 && !ctx->region_full[idx])
+	{
+		ctx->region_full[idx] = true;
+		s_region_full_pending |= (uint8_t)BIT(idx);
+	}
 }
 
 static int recover_region(struct juxta_log_context *ctx, const struct log_region *region)
@@ -556,7 +660,9 @@ static int recover_region(struct juxta_log_context *ctx, const struct log_region
 			return -ENODATA;
 		}
 
-		rc = find_eof_or_erased(ctx, after_name, end, &file_end, &closed);
+		bool suspect;
+
+		rc = find_end_verified(ctx, after_name, end, &file_end, &closed, &suspect);
 		if (rc != 0)
 		{
 			return rc;
@@ -566,6 +672,10 @@ static int recover_region(struct juxta_log_context *ctx, const struct log_region
 		if (rc != 0)
 		{
 			return rc;
+		}
+		if (suspect)
+		{
+			latch_region_suspect(ctx, region, filename);
 		}
 
 		if (!closed)
@@ -794,8 +904,13 @@ static int ensure_file(struct juxta_log_context *ctx, enum juxta_log_type type,
 	 * "atomic": if there is not enough physical room left we never close
 	 * the old file, never write a half-rotated state.  Both writes still
 	 * go through guarded_flash_append below for defence in depth. */
+	const bool closing_old = (*active_slot != UINT32_MAX && *active_slot < ctx->file_count &&
+				  ctx->files[*active_slot].active);
+	/* The old file's #EOF (when closed below) lands at `off` in the normal
+	 * case and the new header goes after it, so count it here. */
 	const uint32_t needed_bytes = (uint32_t)header_len +
-		((type == JUXTA_LOG_JXS) ? 256U : 0U);
+		((type == JUXTA_LOG_JXS) ? 256U : 0U) +
+		(closing_old ? (uint32_t)strlen(EOF_MARKER) : 0U);
 	if ((uint64_t)off + (uint64_t)needed_bytes > (uint64_t)(region->start + region->size))
 	{
 		ctx->region_full[region_idx] = true;
@@ -810,8 +925,9 @@ static int ensure_file(struct juxta_log_context *ctx, enum juxta_log_type type,
 	 * register the new entry, optionally append the JXS day_start row,
 	 * persist the cache.
 	 * -------------------------------------------------------------- */
-	if (*active_slot != UINT32_MAX && *active_slot < ctx->file_count &&
-		ctx->files[*active_slot].active)
+	uint32_t header_off = off;
+
+	if (closing_old)
 	{
 		struct juxta_file_entry *old = &ctx->files[*active_slot];
 		rc = guarded_flash_append(ctx, region, region_idx,
@@ -830,9 +946,24 @@ static int ensure_file(struct juxta_log_context *ctx, enum juxta_log_type type,
 		}
 		old->length += strlen(EOF_MARKER);
 		old->active = false;
+
+		/* New header goes AFTER the #EOF just written.  Previously it was
+		 * written at the pre-close `off` (== the #EOF's own offset), which
+		 * AND-corrupted both the #EOF and the first header bytes.  Never
+		 * go below the first erased byte found above. */
+		header_off = MAX(off, old->offset + old->length);
+		if ((uint64_t)header_off + (uint64_t)header_len >
+		    (uint64_t)(region->start + region->size))
+		{
+			ctx->region_full[region_idx] = true;
+			s_region_full_pending |= (uint8_t)BIT(region_idx);
+			LOG_WRN("Region %s full after #EOF at 0x%06x; latching", region->prefix,
+				header_off);
+			return 0;
+		}
 	}
 
-	rc = guarded_flash_append(ctx, region, region_idx, off, header, (size_t)header_len);
+	rc = guarded_flash_append(ctx, region, region_idx, header_off, header, (size_t)header_len);
 	if (rc == -ENOSPC)
 	{
 		/* Pre-check above should have caught this — defensive only. */
@@ -843,7 +974,7 @@ static int ensure_file(struct juxta_log_context *ctx, enum juxta_log_type type,
 		return rc;
 	}
 
-	rc = add_file_entry(ctx, filename, off, (uint32_t)header_len, type, true);
+	rc = add_file_entry(ctx, filename, header_off, (uint32_t)header_len, type, true);
 	if (rc != 0)
 	{
 		/* Cannot happen after the file_count pre-check above; treated as
@@ -863,7 +994,7 @@ static int ensure_file(struct juxta_log_context *ctx, enum juxta_log_type type,
 	struct juxta_log_cache cache;
 	cache_from_context(ctx, &cache);
 	(void)juxta_settings_save_log_cache(&cache);
-	LOG_INF("Created %s at 0x%06x", filename, off);
+	LOG_INF("Created %s at 0x%06x", filename, header_off);
 	return 0;
 }
 
@@ -1040,9 +1171,10 @@ int juxta_log_init(struct juxta_log_context *ctx, const struct juxta_settings *s
 			}
 			uint32_t actual_end;
 			bool closed;
-			int scan_rc = find_eof_or_erased(ctx, e->offset,
-											 rgn->start + rgn->size,
-											 &actual_end, &closed);
+			bool suspect;
+			int scan_rc = find_end_verified(ctx, e->offset,
+											rgn->start + rgn->size,
+											&actual_end, &closed, &suspect);
 
 			if (scan_rc == 0)
 			{
@@ -1053,6 +1185,10 @@ int juxta_log_init(struct juxta_log_context *ctx, const struct juxta_settings *s
 					LOG_INF("Reconciled %s length %u → %u bytes",
 							e->path, e->length, actual_len);
 					e->length = actual_len;
+				}
+				if (suspect)
+				{
+					latch_region_suspect(ctx, rgn, e->path);
 				}
 			}
 		}
@@ -1133,22 +1269,23 @@ void juxta_log_set_device_id(const char *device_id)
 #define NOR_SECTOR_SIZE 0x1000U
 #define NOR_BLOCK_SIZE 0x10000U
 
+/* One 4 KB read per sector (a 256 B loop cost 16x the SPI command overhead
+ * over the ~3.9 MB clearMemory scan).  Static: only called from
+ * erase_region() under the log mutex.  A failed read reports "not blank" so
+ * the sector gets erased. */
 static bool sector_is_blank(const struct juxta_log_context *ctx, uint32_t base)
 {
-	static uint8_t buf[256];
+	static uint8_t buf[NOR_SECTOR_SIZE];
 
-	for (uint32_t off = 0U; off < NOR_SECTOR_SIZE; off += sizeof(buf))
+	if (flash_read(ctx->flash, base, buf, sizeof(buf)) != 0)
 	{
-		if (flash_read(ctx->flash, base + off, buf, sizeof(buf)) != 0)
+		return false;
+	}
+	for (size_t i = 0; i < sizeof(buf); i++)
+	{
+		if (buf[i] != 0xFFU)
 		{
 			return false;
-		}
-		for (size_t i = 0; i < sizeof(buf); i++)
-		{
-			if (buf[i] != 0xFFU)
-			{
-				return false;
-			}
 		}
 	}
 	return true;
@@ -1184,34 +1321,66 @@ static int erase_range(struct juxta_log_context *ctx, uint32_t start, uint32_t e
 	return 0;
 }
 
-/* Rows are appended contiguously from region start, so only erase up to the
- * first erased byte (sector-rounded). If the following sector is not blank the
- * layout is unexpected — erase the whole region. */
+/* full: erase the whole region unconditionally.  Otherwise (clearMemory) scan
+ * EVERY sector of the region and erase only those that are not blank.  The
+ * old "erase to the first 0xFF + one sector" shortcut missed stale data
+ * beyond a gap (inflated lengths / interrupted writes), which a later row
+ * append would then AND into garbage.  Contiguous dirty sectors are coalesced
+ * into one erase_range() call so 64 KB block erases still apply. */
 static int erase_region(struct juxta_log_context *ctx, const struct log_region *region, bool full)
 {
 	uint32_t region_end = region->start + region->size;
-	uint32_t used_end;
-	uint32_t end;
+	uint32_t run_start = UINT32_MAX;
+	uint32_t erased = 0U;
+	uint32_t pos;
+	int rc;
 
-	if (full || first_erased_offset(ctx, region, &used_end) != 0 ||
-	    used_end < region->start)
+	if (full)
 	{
 		return erase_range(ctx, region->start, region_end);
 	}
 
-	end = region->start + ROUND_UP(used_end - region->start, NOR_SECTOR_SIZE);
-	if (end > region_end)
+	for (pos = region->start; pos < region_end; pos += NOR_SECTOR_SIZE)
 	{
-		end = region_end;
-	}
-	if (end < region_end && !sector_is_blank(ctx, end))
-	{
-		LOG_WRN("%s: data past first erased byte — full region erase", region->prefix);
-		end = region_end;
+		if (!sector_is_blank(ctx, pos))
+		{
+			if (run_start == UINT32_MAX)
+			{
+				run_start = pos;
+			}
+		}
+		else if (run_start != UINT32_MAX)
+		{
+			rc = erase_range(ctx, run_start, pos);
+			if (rc != 0)
+			{
+				return rc;
+			}
+			erased += pos - run_start;
+			run_start = UINT32_MAX;
+		}
+
+		/* The scan holds the log mutex: feed the WDT and yield per sector. */
+		if (s_long_op_tick != NULL)
+		{
+			s_long_op_tick();
+		}
+		k_yield();
 	}
 
-	LOG_INF("%s: erasing %u KB", region->prefix, (unsigned int)((end - region->start) / 1024U));
-	return erase_range(ctx, region->start, end);
+	if (run_start != UINT32_MAX)
+	{
+		rc = erase_range(ctx, run_start, region_end);
+		if (rc != 0)
+		{
+			return rc;
+		}
+		erased += region_end - run_start;
+	}
+
+	LOG_INF("%s: scanned %u KB, erased %u KB", region->prefix,
+		(unsigned int)(region->size / 1024U), (unsigned int)(erased / 1024U));
+	return 0;
 }
 
 static atomic_t s_log_busy;

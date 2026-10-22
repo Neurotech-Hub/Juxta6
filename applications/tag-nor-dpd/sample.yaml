@@ -1,0 +1,17 @@
+sample:
+  name: Tag NOR Deep Power-Down Isolation Test
+  description: >
+    HIL: stress MX25L3233F reads/writes/reboots with runtime-PM deep power-down
+    (as in juxta6-0-prod 6.5.2) in the last 64 KB only. Reports one RESULT line.
+
+common:
+  tags:
+    - tag
+    - bringup
+    - flash
+
+tests:
+  applications.tag-nor-dpd:
+    platform_allow:
+      - nrf54l15tag/nrf54l15/cpuapp
+    harness: console

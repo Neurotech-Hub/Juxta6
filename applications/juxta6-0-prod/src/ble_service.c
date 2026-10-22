@@ -154,6 +154,23 @@ static int extract_string(const char *json, const char *key, char *out, size_t o
 	return 0;
 }
 
+/* subjectId / experiment end up verbatim in JXS CSV rows on NOR.  Keep them
+ * printable ASCII with no CSV delimiters: a raw 0xFF would read as "erased"
+ * to the boot-time end scan, and ',' / '"' / control bytes would break the
+ * column layout.  Anything else becomes '_'. */
+static void sanitize_csv_text(char *s)
+{
+	for (; *s != '\0'; s++)
+	{
+		uint8_t c = (uint8_t)*s;
+
+		if (c < 0x20U || c > 0x7EU || c == ',' || c == '"')
+		{
+			*s = '_';
+		}
+	}
+}
+
 static int extract_u32(const char *json, const char *key, uint32_t *value)
 {
 	char pattern[40];
@@ -691,10 +708,12 @@ static int apply_gateway_command(const char *json)
 	}
 	if (extract_string(json, "subjectId", next.subject_id, sizeof(next.subject_id)) == 0)
 	{
+		sanitize_csv_text(next.subject_id);
 		changed = true;
 	}
 	if (extract_string(json, "experiment", next.experiment, sizeof(next.experiment)) == 0)
 	{
+		sanitize_csv_text(next.experiment);
 		changed = true;
 	}
 

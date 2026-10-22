@@ -81,8 +81,10 @@
 		has-dpd;
 		t-enter-dpd = <10000>;
 		t-exit-dpd = <100000>;
-		/* Suspend into deep power-down between flash API calls. */
-		zephyr,pm-device-runtime-auto;
+		/* Suspend into deep power-down between flash API calls.
+		 * Disabled in 6.5.3: re-enable (with CONFIG_PM_DEVICE_RUNTIME in
+		 * prj.conf) after applications/tag-nor-dpd reports PASS. */
+		/* zephyr,pm-device-runtime-auto; */
 		zephyr,deferred-init;
 	};
 };
