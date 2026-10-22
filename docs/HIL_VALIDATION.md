@@ -33,6 +33,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 | HIL-11  | `tag-rssi-adv`    | Adv RSSI + dual RX antenna               | Same image; BTN1 advertiser(red) / scanner(blue); scanner RTT `rssi_pkt id=… seq=… rssi=… rx_ant=1\|2 …`; both antennas appear; no CS | 2026-09-14 | 3.3.4 |                   | pass                    | Both rx_ant=1 and 2 logged; ANT1 ~5 dB stronger than ANT2 in short-range capture (`data/tag-rssi.log`). |          |
 | HIL-12  | `tag-vdd`         | SAADC internal VDD (CR2032)              | RTT `vdd_mv=… batt_pct~…` idle and during brief adv; ~2.7–3.3 V on coin cell (nRF54 needs GAIN_1_4 + 0.9 V ref — not GAIN_1) | 2026-09-17 | 3.3.4 |                   | pass                    | GAIN_1_4 + 0.9 V ref |          |
 | HIL-13  | `tag-bme688`      | BME688 one-shot T + RH                   | RTT `[PROBE] bme688 ok`; `[SAMPLE] temp_c=… humidity_pct=…` (room ~15–35 °C / ~20–80 %RH); `[SUSPEND]` ok; brief green LED | 2026-09-21 | 3.3.4 |                   | pass                    |                    |          |
+| HIL-14  | `tag-nor-dpd`     | MX25 deep power-down does not corrupt reads/writes | RTT `[DPD] RESULT PASS rpm=on` with `boots=200`, `scan_fail=0`, `write_fail=0`, `read_fail=0`. Scratch is the last 64 KB only. | 2026-10-22 | 3.3.4 |                   | pass                    | `boots=200 scans=3201 scan_fail=0 write_fail=0 read_fail=0 read_3p94MB_ms=4183` |          |
 
 
 

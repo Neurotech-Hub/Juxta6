@@ -5,7 +5,7 @@ dual-antenna advertising RSSI / ADXL motion + BME688 T/RH + VDD vitals /
 **MX25L3233 NOR CSV** / **MCUboot SMP BLE DFU** (nRF Device Manager).
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
-SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v9`** (firmware **6.5.3**):
+SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v9`** (firmware **6.5.5**):
 
 | File | Columns |
 |------|---------|
@@ -122,7 +122,7 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
 2. Hold **BTN1** 3–10 s → soft reboot → slow green blink, connectable Hublink
    advertising (`JX_*` / `JB_*` via `bt_set_name` + scan response; Hublink UUID in ADV).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.5.3`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
+   `6.5.5`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
    cadence); write **Gateway** JSON with `"timestamp": <unix>` plus optional
    `latitude` / `longitude` (and optional settings including `isBaseStation`).
    Open-Meteo outdoor temp is display-only on the phone — not sent to the tag.
@@ -140,16 +140,18 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
    data past a gap is always removed. While erasing, LIST returns `EOF` and
    file requests are refused.
 
-iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.5.3` / schema v9).
+iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.5.5` / schema v9).
 
-## 6.5.3 NOR hardening
+## 6.5.5 NOR hardening
 
 Follows a bad JXV (garbled head, ~100 KB of `0xFF` padding) seen after 6.5.1 → 6.5.2.
 
-- **NOR deep power-down off** (`zephyr,pm-device-runtime-auto` and
-  `CONFIG_PM_DEVICE_RUNTIME` commented out). Re-enable only after
-  [`applications/tag-nor-dpd`](../tag-nor-dpd) reports PASS with runtime PM on.
-  The BME688 heater-off change from 6.5.2 is kept.
+- **NOR deep power-down on** (`zephyr,pm-device-runtime-auto` and
+  `CONFIG_PM_DEVICE_RUNTIME`). HIL-14 [`applications/tag-nor-dpd`](../tag-nor-dpd)
+  passed with `rpm=on` (200 boots, 3201 scans, 0 failures).
+  `CONFIG_PM_DEVICE_RUNTIME_DEFAULT_ENABLE` is off, and `i2c21` deletes
+  `zephyr,pm-device-runtime-auto`, so the ADXL bus stays awake. The BME688
+  heater-off change from 6.5.2 is kept.
 - **clearMemory scans every sector** instead of stopping at the first erased byte.
 - **Boot length re-measure is verified**: two agreeing scans, no `0x00` byte, and an
   erased tail after the end (up to 3 attempts). If it still fails, that region is

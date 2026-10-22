@@ -144,10 +144,9 @@ static uint8_t ref_at(uint32_t rel)
 
 static void log_mismatch(uint32_t rel, size_t len, size_t bad_i, const uint8_t *data)
 {
-	enum pm_device_state pm = PM_DEVICE_STATE_OTHER;
+	enum pm_device_state pm;
+	int pm_rc = pm_device_state_get(flash, &pm);
 	size_t nonff = 0U;
-
-	(void)pm_device_state_get(flash, &pm);
 	for (size_t i = 0U; i < len; i++) {
 		if (data[i] != 0xFFU) {
 			nonff++;
@@ -156,7 +155,8 @@ static void log_mismatch(uint32_t rel, size_t len, size_t bad_i, const uint8_t *
 	LOG_ERR("[DPD] MISMATCH off=0x%06x exp=0x%02x got=0x%02x chunk_rel=0x%05x len=%u "
 		"nonFF_in_chunk=%u pm_state=%d",
 		(unsigned int)(SCRATCH_START + rel + bad_i), ref_at(rel + (uint32_t)bad_i),
-		data[bad_i], (unsigned int)rel, (unsigned int)len, (unsigned int)nonff, (int)pm);
+		data[bad_i], (unsigned int)rel, (unsigned int)len, (unsigned int)nonff,
+		pm_rc == 0 ? (int)pm : -1);
 	LOG_HEXDUMP_ERR(data, MIN(len, (size_t)16U), "[DPD] chunk head");
 }
 

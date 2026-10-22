@@ -82,11 +82,21 @@
 		t-enter-dpd = <10000>;
 		t-exit-dpd = <100000>;
 		/* Suspend into deep power-down between flash API calls.
-		 * Disabled in 6.5.3: re-enable (with CONFIG_PM_DEVICE_RUNTIME in
-		 * prj.conf) after applications/tag-nor-dpd reports PASS. */
-		/* zephyr,pm-device-runtime-auto; */
+		 * Requires CONFIG_PM_DEVICE_RUNTIME and
+		 * CONFIG_PM_DEVICE_RUNTIME_DEFAULT_ENABLE=n in prj.conf.
+		 */
+		zephyr,pm-device-runtime-auto;
 		zephyr,deferred-init;
 	};
+};
+
+/*
+ * SoC dts marks this TWIM zephyr,pm-device-runtime-auto. With runtime PM on,
+ * that suspends the bus at boot (pins disconnected) and the first ADXL
+ * transaction returns -EIO. NOR deep power-down does not need I2C runtime PM.
+ */
+&i2c21 {
+	/delete-property/ zephyr,pm-device-runtime-auto;
 };
 
 /* Probe after contact settle in main() — see juxta6-0-prod src/main.c. */
