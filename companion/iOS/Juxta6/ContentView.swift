@@ -531,9 +531,19 @@ class AppState: ObservableObject {
     @Published var terminalLog: [String] = []
     @Published var connectionStatus = "Ready"
     @Published var availablePackages: [DailyPackage] = []
-    @Published var selectedPackageDate: String = ""
+    @Published var selectedPackageDates: Set<String> = []
     @Published var isTransferringPackage = false
-    @Published var transferProgress = ""
+    /// Files finished in the current multi-day pull (saved or skipped).
+    @Published var transferCompletedFiles = 0
+    /// Files queued for the current multi-day pull.
+    @Published var transferTotalFiles = 0
+    /// Short in-progress label, e.g. "Vitals May 7 · 1/6".
+    @Published var transferStatusLabel = ""
+
+    var transferFraction: Double {
+        guard transferTotalFiles > 0 else { return 0 }
+        return min(1, Double(transferCompletedFiles) / Double(transferTotalFiles))
+    }
     @Published var showClearMemoryAlert = false
     @Published var showShelfModeAlert = false
     @Published var showDefaultSettingsAlert = false
@@ -896,6 +906,14 @@ class BLEManager: NSObject, ObservableObject {
     private var sessionHandshakeStarted = false
     /// Accumulates filename-characteristic indications until listing is complete (`EOF` / full `…;EOF` frame).
     private var filenameListingBuffer = ""
+    /// Remaining date keys for the current pull, oldest first, not including the day in flight.
+    private var packageQueue: [String] = []
+    private var queueDeviceID = ""
+    /// Bumped to drop a `asyncAfter` that would otherwise start the next file after cancel.
+    private var transferGeneration = 0
+    private var packageHadSaveFailure = false
+    /// True once the in-flight file has been saved or skipped, so EOF and a write error cannot both advance it.
+    private var currentFileSettled = true
 
     init(appState: AppState, packageStore: PackageStore) {
         self.appState = appState
@@ -993,11 +1011,10 @@ class BLEManager: NSObject, ObservableObject {
         }
         guard writeGatewayJSONObject(["clearMemory": true]) else { return }
         DispatchQueue.main.async {
+            self.cancelPackageTransfer()
             self.appState.memoryLevel = 0
             self.appState.availablePackages = []
-            self.appState.selectedPackageDate = ""
-            self.appState.isTransferringPackage = false
-            self.appState.transferProgress = ""
+            self.appState.selectedPackageDates = []
             self.appState.log("Device memory cleared")
         }
     }
@@ -1069,7 +1086,7 @@ class BLEManager: NSObject, ObservableObject {
                     isBaseStation: appState.isBaseStation)
                 appState.memoryLevel = 0
                 appState.availablePackages = []
-                appState.selectedPackageDate = ""
+                appState.selectedPackageDates = []
             }
             appState.pushFeedback = "Pushed"
             appState.captureSettingsBaseline()
@@ -1094,9 +1111,8 @@ class BLEManager: NSObject, ObservableObject {
                     from: current, isBaseStation: appState.isBaseStation)
                 appState.memoryLevel = 0
                 appState.availablePackages = []
-                appState.selectedPackageDate = ""
-                appState.isTransferringPackage = false
-                appState.transferProgress = ""
+                appState.selectedPackageDates = []
+                cancelPackageTransfer()
                 appState.log("Role changed — memory cleared; name \(appState.connectedDeviceDisplayName)")
             }
             appState.pushFeedback = "Pushed"
@@ -1120,54 +1136,96 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
     
-    func startPackageTransfer(dateKey: String, deviceID: String) {
+    /// Pulls the chosen days oldest-first. Each day still walks JXV, JXS, then JXB, one confirmed file at a time.
+    func startPackageTransfers(dateKeys: [String], deviceID: String) {
+        guard !appState.isTransferringPackage else { return }
         guard filenameCharacteristic != nil else {
             appState.log("ERROR: Filename characteristic not available")
             return
         }
 
+        var queue: [String] = []
+        var total = 0
+        for dateKey in dateKeys.sorted() {
+            let names = filenames(for: dateKey, deviceID: deviceID)
+            if names.isEmpty {
+                appState.log("ERROR: No files found for package \(dateKey)")
+                continue
+            }
+            queue.append(dateKey)
+            total += names.count
+        }
+        guard let first = queue.first else { return }
+
+        transferGeneration += 1
+        queue.removeFirst()
+        packageQueue = queue
+        queueDeviceID = deviceID
+        appState.transferCompletedFiles = 0
+        appState.transferTotalFiles = total
+        appState.isTransferringPackage = true
+        openPackage(dateKey: first)
+        transferNextFile()
+    }
+
+    /// Drops any in-flight pull, including a file step already scheduled after EOF.
+    func cancelPackageTransfer() {
+        let wasTransferring = appState.isTransferringPackage
+        transferGeneration += 1
+        packageQueue.removeAll()
+        filesToTransfer.removeAll()
+        currentFileIndex = 0
+        currentTransferFilename = ""
+        currentTransferDateKey = ""
+        currentFileSettled = true
+        stagingContent = ""
+        appState.isTransferringPackage = false
+        appState.transferCompletedFiles = 0
+        appState.transferTotalFiles = 0
+        appState.transferStatusLabel = ""
+        if wasTransferring {
+            packageStore.refresh()
+        }
+    }
+
+    private func filenames(for dateKey: String, deviceID: String) -> [String] {
         let candidates = ["JXV\(dateKey).csv", "JXS\(dateKey).csv", "JXB\(dateKey).csv"]
         let deviceFiles = Set(appState.availablePackages
             .filter { $0.deviceID == deviceID && $0.dateKey == dateKey }
             .flatMap { $0.files.keys })
+        return candidates.filter { deviceFiles.contains($0) }
+    }
 
-        filesToTransfer = candidates.filter { deviceFiles.contains($0) }
-        guard !filesToTransfer.isEmpty else {
-            appState.log("ERROR: No files found for package \(dateKey)")
-            return
-        }
-
+    private func openPackage(dateKey: String) {
+        filesToTransfer = filenames(for: dateKey, deviceID: queueDeviceID)
         currentFileIndex = 0
-        currentTransferDeviceID = deviceID
+        currentTransferDeviceID = queueDeviceID
         currentTransferDateKey = dateKey
+        currentTransferFilename = ""
+        packageHadSaveFailure = false
+        currentFileSettled = true
         stagingContent = ""
-        appState.isTransferringPackage = true
-        appState.transferProgress = "Preparing transfer…"
-        transferNextFile()
     }
 
     private func transferNextFile() {
+        guard appState.isTransferringPackage else { return }
         guard currentFileIndex < filesToTransfer.count else {
-            appState.isTransferringPackage = false
-            appState.transferProgress = "Transfer complete (\(filesToTransfer.count) file\(filesToTransfer.count == 1 ? "" : "s"))"
-            appState.log("✓ Package transfer complete (\(filesToTransfer.count) files)")
-            if !currentTransferDateKey.isEmpty {
-                appState.transferredDateKeys.insert(currentTransferDateKey)
-            }
-            packageStore.refresh()
+            finishCurrentPackage()
             return
         }
 
         let filename = filesToTransfer[currentFileIndex]
         currentTransferFilename = filename
+        currentFileSettled = false
         stagingContent = ""
 
-        appState.transferProgress = "Transferring \(currentFileIndex + 1)/\(filesToTransfer.count): \(filename)"
-        appState.log("Transferring \(currentFileIndex + 1)/\(filesToTransfer.count): \(filename)")
+        let step = min(appState.transferCompletedFiles + 1, max(appState.transferTotalFiles, 1))
+        appState.transferStatusLabel = "\(Self.shortTransferName(filename)) · \(step)/\(appState.transferTotalFiles)"
+        appState.log("Transferring \(step)/\(appState.transferTotalFiles): \(filename)")
 
         guard let characteristic = filenameCharacteristic else {
             appState.log("ERROR: Filename characteristic not available")
-            appState.isTransferringPackage = false
+            cancelPackageTransfer()
             return
         }
 
@@ -1176,7 +1234,28 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    private func finishCurrentPackage() {
+        if !currentTransferDateKey.isEmpty && !packageHadSaveFailure && !filesToTransfer.isEmpty {
+            appState.transferredDateKeys.insert(currentTransferDateKey)
+        }
+        let savedCount = filesToTransfer.count
+        let dateKey = currentTransferDateKey
+        appState.log("✓ Package \(dateKey) transfer complete (\(savedCount) file\(savedCount == 1 ? "" : "s"))")
+
+        guard let next = packageQueue.first else {
+            let total = appState.transferTotalFiles
+            appState.log("✓ Package transfer complete (\(total) file\(total == 1 ? "" : "s"))")
+            cancelPackageTransfer()
+            return
+        }
+        packageQueue.removeFirst()
+        openPackage(dateKey: next)
+        transferNextFile()
+    }
+
     private func completeCurrentFileTransfer() {
+        guard appState.isTransferringPackage, !currentFileSettled else { return }
+        currentFileSettled = true
         if !currentTransferFilename.isEmpty && !stagingContent.isEmpty {
             do {
                 try packageStore.save(filename: currentTransferFilename,
@@ -1184,11 +1263,67 @@ class BLEManager: NSObject, ObservableObject {
                                       deviceID: currentTransferDeviceID)
                 appState.log("✓ Saved '\(currentTransferFilename)' (\(stagingContent.count) chars)")
             } catch {
+                packageHadSaveFailure = true
                 appState.log("ERROR: Could not save '\(currentTransferFilename)': \(error.localizedDescription)")
             }
+        } else {
+            packageHadSaveFailure = true
+            appState.log("ERROR: Empty transfer for '\(currentTransferFilename)'")
         }
         currentFileIndex += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.transferNextFile() }
+        noteFileStep()
+        scheduleNextFile()
+    }
+
+    /// A filename write that the tag rejects (missing file) must not stall the rest of the queue.
+    private func skipCurrentFile(reason: String) {
+        guard appState.isTransferringPackage, !currentFileSettled else { return }
+        currentFileSettled = true
+        packageHadSaveFailure = true
+        stagingContent = ""
+        appState.log("ERROR: Skipped '\(currentTransferFilename)': \(reason)")
+        currentFileIndex += 1
+        noteFileStep()
+        scheduleNextFile()
+    }
+
+    private func noteFileStep() {
+        appState.transferCompletedFiles = min(appState.transferCompletedFiles + 1, appState.transferTotalFiles)
+    }
+
+    /// "JXV20260507.csv" → "Vitals May 7". Keeps the progress button to one short line.
+    private static func shortTransferName(_ filename: String) -> String {
+        let kind: String
+        if filename.hasPrefix("JXV") {
+            kind = "Vitals"
+        } else if filename.hasPrefix("JXS") {
+            kind = "Settings"
+        } else if filename.hasPrefix("JXB") {
+            kind = "BLE"
+        } else {
+            kind = "File"
+        }
+        guard let dateKey = PackageStore.dateKey(from: filename) else { return kind }
+        let parser = DateFormatter()
+        parser.calendar = Calendar(identifier: .gregorian)
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(secondsFromGMT: 0)
+        parser.dateFormat = "yyyyMMdd"
+        guard let date = parser.date(from: dateKey) else { return kind }
+        let display = DateFormatter()
+        display.calendar = parser.calendar
+        display.locale = parser.locale
+        display.timeZone = parser.timeZone
+        display.dateFormat = "MMM d"
+        return "\(kind) \(display.string(from: date))"
+    }
+
+    private func scheduleNextFile() {
+        let generation = transferGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.transferGeneration == generation else { return }
+            self.transferNextFile()
+        }
     }
     
     private func checkAndReadNode() {
@@ -1307,10 +1442,9 @@ extension BLEManager: CBCentralManagerDelegate {
         appState.cancelClearDevices()
         appState.stopRSSIMonitoring()
         
+        cancelPackageTransfer()
         appState.availablePackages = []
-        appState.selectedPackageDate = ""
-        appState.isTransferringPackage = false
-        appState.transferProgress = ""
+        appState.selectedPackageDates = []
         appState.transferredDateKeys.removeAll()
 
         appState.connectedDeviceRSSI = 0
@@ -1345,7 +1479,7 @@ extension BLEManager: CBPeripheralDelegate {
         if trimmed.isEmpty {
             DispatchQueue.main.async {
                 self.appState.availablePackages = []
-                self.appState.selectedPackageDate = ""
+                self.appState.selectedPackageDates = []
                 self.appState.log("File listing: empty")
             }
             return
@@ -1397,9 +1531,7 @@ extension BLEManager: CBPeripheralDelegate {
         DispatchQueue.main.async {
             self.appState.availablePackages = packages
             let validKeys = Set(packages.map { $0.dateKey })
-            if !validKeys.contains(self.appState.selectedPackageDate) {
-                self.appState.selectedPackageDate = packages.first?.dateKey ?? ""
-            }
+            self.appState.selectedPackageDates = self.appState.selectedPackageDates.intersection(validKeys)
             self.appState.log("File listing: \(namesInListing.count) name(s), \(jxCsvCount) JX*.csv in package format → \(packages.count) daily package(s) on device")
         }
     }
@@ -1477,6 +1609,12 @@ extension BLEManager: CBPeripheralDelegate {
         checkAndReadNode()
     }
     
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        guard characteristic.uuid == HublinkUUIDs.filename,
+              let error else { return }
+        skipCurrentFile(reason: error.localizedDescription)
+    }
+
     func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
         if let error = error {
             appState.log("ERROR: RSSI read failed - \(error.localizedDescription)")
@@ -1679,11 +1817,15 @@ struct JuxtaButtonStyle: ButtonStyle {
     let isOperatingMode: Bool
     let isSubtle: Bool
     
-    init(color: Color = .blue, isDestructive: Bool = false, isOperatingMode: Bool = false, isSubtle: Bool = false) {
+    /// When set, a light wash grows left to right over the filled button. Nil keeps the original fill.
+    var progress: Double? = nil
+
+    init(color: Color = .blue, isDestructive: Bool = false, isOperatingMode: Bool = false, isSubtle: Bool = false, progress: Double? = nil) {
         self.color = color
         self.isDestructive = isDestructive
         self.isOperatingMode = isOperatingMode
         self.isSubtle = isSubtle
+        self.progress = progress
     }
     
     func makeBody(configuration: Configuration) -> some View {
@@ -1693,15 +1835,32 @@ struct JuxtaButtonStyle: ButtonStyle {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(
-                        isSubtle ? AnyShapeStyle(Color(.systemGray6)) :
-                        isDestructive ? 
-                        AnyShapeStyle(LinearGradient(colors: [color, color.opacity(0.8)], startPoint: .top, endPoint: .bottom)) :
-                        isOperatingMode ?
-                        AnyShapeStyle(Color(.systemBackground)) :
-                        AnyShapeStyle(LinearGradient(colors: [Color(.systemGray6), Color(.systemGray5)], startPoint: .top, endPoint: .bottom))
-                    )
+                Group {
+                    if let progress {
+                        GeometryReader { proxy in
+                            let fraction = CGFloat(min(1, max(0, progress)))
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(LinearGradient(colors: [color, color.opacity(0.8)], startPoint: .top, endPoint: .bottom))
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.32))
+                                    .frame(width: proxy.size.width * fraction)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .animation(.linear(duration: 0.2), value: progress)
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(
+                                isSubtle ? AnyShapeStyle(Color(.systemGray6)) :
+                                isDestructive ?
+                                AnyShapeStyle(LinearGradient(colors: [color, color.opacity(0.8)], startPoint: .top, endPoint: .bottom)) :
+                                isOperatingMode ?
+                                AnyShapeStyle(Color(.systemBackground)) :
+                                AnyShapeStyle(LinearGradient(colors: [Color(.systemGray6), Color(.systemGray5)], startPoint: .top, endPoint: .bottom))
+                            )
+                    }
+                }
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
@@ -2530,29 +2689,26 @@ struct ContentView: View {
             }
 
             Button(action: {
-                guard !appState.selectedPackageDate.isEmpty,
-                      let pkg = appState.availablePackages.first(where: { $0.dateKey == appState.selectedPackageDate }) else { return }
-                bleManager.startPackageTransfer(dateKey: pkg.dateKey, deviceID: pkg.deviceID)
+                let keys = Array(appState.selectedPackageDates)
+                guard let deviceID = appState.availablePackages.first(where: { appState.selectedPackageDates.contains($0.dateKey) })?.deviceID else { return }
+                bleManager.startPackageTransfers(dateKeys: keys, deviceID: deviceID)
             }) {
-                HStack(spacing: 6) {
-                    if appState.isTransferringPackage {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.7)
-                        Text(appState.transferProgress.isEmpty ? "Transferring…" : appState.transferProgress)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 14))
-                        Text("Transfer Selected")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 36)
+                Text(appState.isTransferringPackage
+                     ? appState.transferStatusLabel
+                     : "Transfer Selected")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
             }
-            .buttonStyle(JuxtaButtonStyle(color: .blue, isDestructive: true))
-            .disabled(appState.selectedPackageDate.isEmpty || appState.availablePackages.isEmpty || appState.isTransferringPackage)
+            .buttonStyle(JuxtaButtonStyle(
+                color: .blue,
+                isDestructive: true,
+                progress: appState.isTransferringPackage ? appState.transferFraction : nil
+            ))
+            .disabled(!appState.isTransferringPackage && (appState.selectedPackageDates.isEmpty || appState.availablePackages.isEmpty))
+            .allowsHitTesting(!appState.isTransferringPackage)
+            .animation(.linear(duration: 0.2), value: appState.transferFraction)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2561,15 +2717,19 @@ struct ContentView: View {
     }
 
     private func packageRow(_ pkg: DailyPackage) -> some View {
-        let isSelected = (pkg.dateKey == appState.selectedPackageDate)
+        let isSelected = appState.selectedPackageDates.contains(pkg.dateKey)
         let isDone = appState.transferredDateKeys.contains(pkg.dateKey)
         return Button(action: {
-            appState.selectedPackageDate = pkg.dateKey
+            if isSelected {
+                appState.selectedPackageDates.remove(pkg.dateKey)
+            } else {
+                appState.selectedPackageDates.insert(pkg.dateKey)
+            }
         }) {
             HStack(spacing: 8) {
-                Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14))
-                    .foregroundColor(isDone ? .green : Color(.systemGray3))
+                    .foregroundColor(isSelected ? .blue : Color(.systemGray3))
                 Text(pkg.displayDate)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .foregroundColor(.primary)
@@ -2577,6 +2737,11 @@ struct ContentView: View {
                 Text("\(pkg.fileCount) file\(pkg.fileCount == 1 ? "" : "s")")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.secondary)
+                if isDone {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.green)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -2604,19 +2769,19 @@ private struct DevicePackageGroup: Identifiable {
 struct PackagesView: View {
     @EnvironmentObject var packageStore: PackageStore
     @State private var packageFilter: PackageFilter = .active
-    @State private var showDeleteConfirm = false
-    @State private var showArchiveAllConfirm = false
-    @State private var packageToDelete: DailyPackage?
+
+    private static let lastTransferFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     private var filteredPackages: [DailyPackage] {
         packageStore.packages.filter { pkg in
             let archived = packageStore.isArchived(pkg)
             return packageFilter == .archived ? archived : !archived
         }
-    }
-
-    private var activePackageCount: Int {
-        packageStore.packages.filter { !packageStore.isArchived($0) }.count
     }
 
     /// Devices ordered by most recently written local package (`lastFileWriteAt`); `dateKey` alone is day-only.
@@ -2658,58 +2823,10 @@ struct PackagesView: View {
             } else {
                 List {
                     ForEach(devicePackageGroups) { group in
-                        Section {
-                            ForEach(group.packages) { pkg in
-                                NavigationLink(destination: DailyPackageView(package: pkg)) {
-                                    HStack(alignment: .center, spacing: 10) {
-                                        Text(pkg.displayDate)
-                                            .font(.system(size: 15, weight: .semibold))
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.8)
-                                        Spacer(minLength: 8)
-                                        HStack(spacing: 3) {
-                                            fileIcon("V", present: pkg.vitalsURL != nil)
-                                            fileIcon("S", present: pkg.settingsURL != nil)
-                                            fileIcon("B", present: pkg.bleURL != nil)
-                                        }
-                                        Image(systemName: pkg.isComplete ? "checkmark.circle.fill" : "exclamationmark.circle")
-                                            .foregroundColor(pkg.isComplete ? .green : .orange)
-                                            .font(.system(size: 14))
-                                            .imageScale(.small)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if packageFilter == .active {
-                                        Button {
-                                            packageStore.archive(pkg)
-                                        } label: {
-                                            Label("Archive", systemImage: "archivebox")
-                                        }
-                                        .tint(.orange)
-                                    } else {
-                                        Button {
-                                            packageStore.unarchive(pkg)
-                                        } label: {
-                                            Label("Unarchive", systemImage: "tray.and.arrow.up")
-                                        }
-                                        .tint(.blue)
-                                        Button(role: .destructive) {
-                                            packageToDelete = pkg
-                                            showDeleteConfirm = true
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                    }
-                                }
-                                .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 8))
-                            }
-                        } header: {
-                            Text(group.deviceID)
-                                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                                .textCase(nil)
-                                .foregroundColor(.secondary)
+                        NavigationLink {
+                            DevicePackagesView(deviceID: group.deviceID, packageFilter: packageFilter)
+                        } label: {
+                            deviceCard(group)
                         }
                     }
                 }
@@ -2727,31 +2844,44 @@ struct PackagesView: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 260)
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if packageFilter == .active, activePackageCount > 0 {
-                    Button("Archive All") {
-                        showArchiveAllConfirm = true
-                    }
-                    .font(.system(size: 15))
-                }
+        }
+    }
+
+    private func deviceCard(_ group: DevicePackageGroup) -> some View {
+        let count = group.packages.count
+        let complete = group.packages.filter(\.isComplete).count
+        let bytes = group.packages.reduce(0) { total, pkg in
+            total + pkg.files.values.reduce(0) { $0 + fileByteCount(at: $1) }
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(group.deviceID)
+                .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                .foregroundColor(.primary)
+            Text("\(count) package\(count == 1 ? "" : "s") · \(dateSpan(for: group.packages))")
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+            Text("\(complete) of \(count) complete · \(formatByteCount(bytes))")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.secondary)
+            if let latest = group.packages.map(\.lastFileWriteAt).max(), latest > .distantPast {
+                Text("Last transfer \(Self.lastTransferFormatter.string(from: latest))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
-        .alert("Delete Package", isPresented: $showDeleteConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                if let pkg = packageToDelete { packageStore.delete(pkg) }
-            }
-        } message: {
-            Text("This will permanently delete all files in this package from the device. This cannot be undone.")
-        }
-        .alert("Archive All Packages", isPresented: $showArchiveAllConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Archive All") {
-                packageStore.archiveAll()
-            }
-        } message: {
-            Text("Archive all \(activePackageCount) package\(activePackageCount == 1 ? "" : "s")? They will move to the Archived tab. Files are not deleted.")
-        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func dateSpan(for packages: [DailyPackage]) -> String {
+        let keys = packages.map(\.dateKey).sorted()
+        guard let first = keys.first, let last = keys.last,
+              let oldest = packages.first(where: { $0.dateKey == first }),
+              let newest = packages.first(where: { $0.dateKey == last }) else { return "" }
+        if first == last { return oldest.displayDate }
+        return "\(oldest.displayDate) – \(newest.displayDate)"
     }
 
     private func emptyPackagesView(title: String, subtitle: String) -> some View {
@@ -2771,14 +2901,225 @@ struct PackagesView: View {
         }
     }
 
-    private func fileIcon(_ letter: String, present: Bool) -> some View {
-        Text(letter)
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
-            .padding(.horizontal, 3)
-            .padding(.vertical, 1)
-            .background(present ? Color.blue.opacity(0.15) : Color(.systemGray5))
-            .foregroundColor(present ? .blue : .secondary)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+}
+
+private func packageFileBadge(_ letter: String, present: Bool) -> some View {
+    Text(letter)
+        .font(.system(size: 9, weight: .bold, design: .monospaced))
+        .padding(.horizontal, 3)
+        .padding(.vertical, 1)
+        .background(present ? Color.blue.opacity(0.15) : Color(.systemGray5))
+        .foregroundColor(present ? .blue : .secondary)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+}
+
+// MARK: - Device Packages
+private struct DevicePackagesView: View {
+    let deviceID: String
+    let packageFilter: PackageFilter
+
+    @EnvironmentObject private var packageStore: PackageStore
+    @State private var selectedDateKeys: Set<String> = []
+    @State private var sharePayload: SharePayload?
+    @State private var zipError: String?
+    @State private var showDeleteConfirm = false
+    @State private var packageToDelete: DailyPackage?
+
+    private var packages: [DailyPackage] {
+        packageStore.packages
+            .filter { $0.deviceID == deviceID }
+            .filter { pkg in
+                let archived = packageStore.isArchived(pkg)
+                return packageFilter == .archived ? archived : !archived
+            }
+            .sorted {
+                if $0.lastFileWriteAt != $1.lastFileWriteAt { return $0.lastFileWriteAt > $1.lastFileWriteAt }
+                return $0.dateKey > $1.dateKey
+            }
+    }
+
+    private var selectedPackages: [DailyPackage] {
+        packages.filter { selectedDateKeys.contains($0.dateKey) }
+    }
+
+    var body: some View {
+        Group {
+            if packages.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Text(packageFilter == .active ? "No active packages." : "No archived packages.")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("This device has nothing in this list.")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+            } else {
+                List {
+                    ForEach(packages) { pkg in
+                        dayRow(pkg)
+                    }
+                }
+                .listStyle(PlainListStyle())
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(deviceID)
+                    .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                    .lineLimit(1)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Reset") {
+                    selectedDateKeys.removeAll()
+                }
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .disabled(selectedDateKeys.isEmpty)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !packages.isEmpty {
+                Group {
+                    if selectedPackages.isEmpty {
+                        fullWidthBarButton("Upload All", color: .blue) {
+                            export(packages)
+                        }
+                    } else if packageFilter == .active {
+                        HStack(spacing: 10) {
+                            fullWidthBarButton("Upload", color: .blue) {
+                                export(selectedPackages)
+                            }
+                            fullWidthBarButton("Archive", color: .orange) {
+                                archiveSelected()
+                            }
+                        }
+                    } else {
+                        fullWidthBarButton("Upload", color: .blue) {
+                            export(selectedPackages)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
+            }
+        }
+        .onChange(of: packages.map(\.dateKey)) { _, keys in
+            selectedDateKeys.formIntersection(keys)
+        }
+        .sheet(item: $sharePayload) { payload in
+            ShareSheet(items: payload.urls.map { $0 as Any }) {
+                for url in payload.urls {
+                    discardSharedZip(at: url)
+                }
+                sharePayload = nil
+            }
+        }
+        .alert("Upload Failed", isPresented: Binding(
+            get: { zipError != nil },
+            set: { if !$0 { zipError = nil } }
+        )) {
+            Button("OK", role: .cancel) { zipError = nil }
+        } message: {
+            Text(zipError ?? "")
+        }
+        .alert("Delete Package", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if let pkg = packageToDelete {
+                    packageStore.delete(pkg)
+                }
+            }
+        } message: {
+            Text("This will permanently delete all files in this package from the device. This cannot be undone.")
+        }
+    }
+
+    @ViewBuilder
+    private func dayRow(_ pkg: DailyPackage) -> some View {
+        let row = HStack(spacing: 10) {
+            Button {
+                if selectedDateKeys.contains(pkg.dateKey) {
+                    selectedDateKeys.remove(pkg.dateKey)
+                } else {
+                    selectedDateKeys.insert(pkg.dateKey)
+                }
+            } label: {
+                Image(systemName: selectedDateKeys.contains(pkg.dateKey) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundColor(selectedDateKeys.contains(pkg.dateKey) ? .blue : Color(.systemGray3))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(selectedDateKeys.contains(pkg.dateKey) ? "Deselect \(pkg.displayDate)" : "Select \(pkg.displayDate)")
+
+            NavigationLink {
+                DailyPackageView(package: pkg)
+            } label: {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(pkg.displayDate)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 8)
+                    HStack(spacing: 3) {
+                        packageFileBadge("V", present: pkg.vitalsURL != nil)
+                        packageFileBadge("S", present: pkg.settingsURL != nil)
+                        packageFileBadge("B", present: pkg.bleURL != nil)
+                    }
+                    Image(systemName: pkg.isComplete ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        .foregroundColor(pkg.isComplete ? .green : .orange)
+                        .font(.system(size: 14))
+                        .imageScale(.small)
+                }
+            }
+        }
+        if packageFilter == .archived {
+            row.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button {
+                    packageStore.unarchive(pkg)
+                } label: {
+                    Label("Unarchive", systemImage: "tray.and.arrow.up")
+                }
+                .tint(.blue)
+                Button(role: .destructive) {
+                    packageToDelete = pkg
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        } else {
+            row
+        }
+    }
+
+    private func fullWidthBarButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+        }
+        .buttonStyle(JuxtaButtonStyle(color: color, isDestructive: true))
+    }
+
+    private func export(_ chosen: [DailyPackage]) {
+        guard !chosen.isEmpty else { return }
+        do {
+            let url = try PackageZip.write(deviceID: deviceID, packages: chosen)
+            sharePayload = SharePayload(urls: [url])
+        } catch {
+            zipError = error.localizedDescription
+        }
+    }
+
+    private func archiveSelected() {
+        for pkg in selectedPackages {
+            packageStore.archive(pkg)
+        }
+        selectedDateKeys.removeAll()
     }
 }
 
@@ -2798,6 +3139,7 @@ struct DailyPackageView: View {
     @State private var bleSummary: PackageFileSummary?
     @State private var isCopying = false
     @State private var copyFeedback = ""
+    @State private var zipError: String?
 
     var body: some View {
         ScrollView {
@@ -2830,7 +3172,20 @@ struct DailyPackageView: View {
             }
         }
         .sheet(item: $sharePayload) { payload in
-            ShareSheet(items: payload.urls.map { $0 as Any }) { sharePayload = nil }
+            ShareSheet(items: payload.urls.map { $0 as Any }) {
+                for url in payload.urls {
+                    discardSharedZip(at: url)
+                }
+                sharePayload = nil
+            }
+        }
+        .alert("Share Failed", isPresented: Binding(
+            get: { zipError != nil },
+            set: { if !$0 { zipError = nil } }
+        )) {
+            Button("OK", role: .cancel) { zipError = nil }
+        } message: {
+            Text(zipError ?? "")
         }
         .task { await loadSummaries() }
     }
@@ -2971,9 +3326,13 @@ struct DailyPackageView: View {
     }
 
     private func share() {
-        let urls = Array(package.files.values)
-        guard !urls.isEmpty else { return }
-        sharePayload = SharePayload(urls: urls)
+        guard hasAnyFile else { return }
+        do {
+            let url = try PackageZip.write(deviceID: package.deviceID, packages: [package])
+            sharePayload = SharePayload(urls: [url])
+        } catch {
+            zipError = error.localizedDescription
+        }
     }
 }
 
@@ -3970,6 +4329,17 @@ struct TerminalTabView: View {
 
     private func clearLog() {
         appState.clearLog()
+    }
+}
+
+/// Removes the temp folder that holds a shared `DEVICE_ID.zip`.
+private func discardSharedZip(at url: URL) {
+    let parent = url.deletingLastPathComponent()
+    let temp = FileManager.default.temporaryDirectory.standardizedFileURL
+    if parent.standardizedFileURL != temp {
+        try? FileManager.default.removeItem(at: parent)
+    } else {
+        try? FileManager.default.removeItem(at: url)
     }
 }
 

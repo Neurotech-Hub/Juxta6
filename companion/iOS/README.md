@@ -23,15 +23,15 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 - **Time sync + context** — Gateway write includes UTC `timestamp` and optional lat/lon; clock subtitle shows last fix plus outdoor °C/°F with a weather icon
 - **Live location / ambient** — location refreshes ~every 10 s while the app is open; outdoor °C is fetched once per launch (and hourly if left open) for the clock subtitle only
 - **Device settings** — subject, experiment, Mobile Tag / Base Station role, adv/scan interval (0 = off, else 1–120 s), vitals ≥60 s, inactivity multiplier (1–10), motion logging. Changing role clears on-device memory and renames the ADV identity (`JX_` ↔ `JB_`)
-- **Daily packages** — transfer `JXV` / `JXS` / `JXB` + `YYYYMMDD` into `Documents/<device_id>/`
+- **Daily packages** — multiselect days and transfer `JXV` / `JXS` / `JXB` + `YYYYMMDD` into `Documents/<device_id>/`
 - **Packages / plots / terminal / info** tabs
 
 ## Usage
 
 1. Device tab → **Scan** → **Connect**.
 2. App reads Node JSON, then writes Gateway `{"timestamp": <UTC epoch>, "sendFilenames": true}` plus optional `latitude` / `longitude`.
-3. Select a day package → **Transfer Selected**.
-4. Browse offline under **Packages**; plot vitals / BLE activity; **Shelf Mode** / **Clear Memory** as needed.
+3. Check one or more days → **Transfer Selected**. The button fills left to right as each file finishes.
+4. Browse offline under **Packages**. Each device card shows the last transfer time. Open it for **Upload All**, or check days to replace that with **Upload** and **Archive**. **Reset** clears the checkmarks. Export is one zip that expands to `DEVICE_ID/JX*YYYYMMDD.csv`. **Shelf Mode** / **Clear Memory** as needed.
 
 ## CSV formats (schema v9)
 
