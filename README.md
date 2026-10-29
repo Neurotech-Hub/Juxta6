@@ -68,6 +68,7 @@ logs (`jxta-nor-csv-v9`).
     ├── tag-blink/ … tag-ble-adv/  # HIL-01..07 hardware fixtures
     ├── tag-vdd/                   # HIL-12 SAADC VDD
     ├── tag-bme688/                # HIL-13 BME688 one-shot T/RH
+    ├── tag-light/                 # HIL-15 TEMT6200 + load FET
     ├── tag-id/                    # HIL-08 identity
     ├── tag-discover/              # HIL-09 two-tag discovery
     ├── tag-cs/                    # HIL-10 mobile↔mobile CS
@@ -105,6 +106,7 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | 7 | `tag-ble-adv` | Connectable adv smoke |
 | 12 | `tag-vdd` | SAADC VDD `vdd_mv` / CR2032 `%` estimate |
 | 13 | `tag-bme688` | BME688 one-shot `temp_c` / `humidity_pct` |
+| 15 | `tag-light` | TEMT6200 `light_mv` with load FET off, then on |
 
 ### Wave B — mobile↔mobile ranging (pre-prod)
 

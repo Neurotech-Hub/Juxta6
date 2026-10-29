@@ -1,0 +1,37 @@
+/*
+ * tag-light: TEMT6200 emitter on LIGHT_SENSE (P1.14 = AIN7).
+ * External pin can swing toward VDD, so use GAIN_1_4 + 0.9 V ref
+ * (full scale 3.6 V). GAIN_1 clips above 0.9 V.
+ */
+
+/ {
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+
+	lht_sns {
+		compatible = "gpio-leds";
+
+		/* RV2C010UNT2L gate. Active-high turns the 2.7 kΩ load on. */
+		lht_sns_ctrl: lht_sns_ctrl {
+			gpios = <&gpio2 6 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <14>;
+		zephyr,oversampling = <8>;
+		zephyr,vref-mv = <900>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;
+	};
+};

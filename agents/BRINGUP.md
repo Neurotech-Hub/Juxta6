@@ -29,6 +29,7 @@ Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
 | 7 | `tag-ble-adv` | Adv / connect LED cues |
 | 12 | `tag-vdd` | RTT `vdd_mv` / `batt_pct~` (SAADC VDD); optional adv droop |
 | 13 | `tag-bme688` | One-shot `temp_c` / `humidity_pct`; then suspend |
+| 15 | `tag-light` | RTT `ctrl=0` then `ctrl=1` `light_mv`; cover moves the on reading |
 
 ### Wave B — mobile↔mobile ranging
 

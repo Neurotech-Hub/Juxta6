@@ -34,6 +34,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 | HIL-12  | `tag-vdd`         | SAADC internal VDD (CR2032)              | RTT `vdd_mv=… batt_pct~…` idle and during brief adv; ~2.7–3.3 V on coin cell (nRF54 needs GAIN_1_4 + 0.9 V ref — not GAIN_1) | 2026-09-17 | 3.3.4 |                   | pass                    | GAIN_1_4 + 0.9 V ref |          |
 | HIL-13  | `tag-bme688`      | BME688 one-shot T + RH                   | RTT `[PROBE] bme688 ok`; `[SAMPLE] temp_c=… humidity_pct=…` (room ~15–35 °C / ~20–80 %RH); `[SUSPEND]` ok; brief green LED | 2026-09-21 | 3.3.4 |                   | pass                    |                    |          |
 | HIL-14  | `tag-nor-dpd`     | MX25 deep power-down does not corrupt reads/writes | RTT `[DPD] RESULT PASS rpm=on` with `boots=200`, `scan_fail=0`, `write_fail=0`, `read_fail=0`. Scratch is the last 64 KB only. | 2026-10-22 | 3.3.4 |                   | pass                    | `boots=200 scans=3201 scan_fail=0 write_fail=0 read_fail=0 read_3p94MB_ms=4183` |          |
+| HIL-15  | `tag-light`       | TEMT6200 + load FET gate light sensing   | RTT `ctrl=0 light_mv=…` then `ctrl=1 light_mv=…` each pass. Covering the phototransistor moves the `ctrl=1` reading (2.7 kΩ load on). `ctrl=0` is the FET-off sample. | 2026-10-29 | 3.3.4 |                   | pass                    | Ambient: `ctrl=0` ~3338 mV, `ctrl=1` ~30–37 mV. Covered: `ctrl=1` → 0. Flashlight: `ctrl=1` rises to 2531 mV while `ctrl=0` stays ~3340 mV. First run had no gate effect (MOSFET solder). |          |
 
 
 
@@ -99,6 +100,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 - Identity: `JX_` + last three bytes of BLE public identity (same rule as Juxta5-8 ble-range).
 - Channel Sounding is isolated in `lib/juxta_range/`. Apps must not call Nordic CS/RAS APIs directly.
 - No FUEL ADC on Tag (CR2032 direct).
+- Light sense (`tag-light`): TEMT6200 emitter on `P1.14` (AIN7); `P2.06` gates the 2.7 kΩ load FET.
 
 
 
