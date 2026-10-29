@@ -67,10 +67,11 @@ int juxta_log_append_event(struct juxta_log_context *ctx, const struct juxta_set
 int juxta_log_append_event_loc(struct juxta_log_context *ctx, const struct juxta_settings *settings,
 			       const char *device_id, const char *event, uint32_t unix_time,
 			       bool loc_valid, float latitude, float longitude);
-/* temp_c / humidity: one-decimal BME688 fields; empty CSV cells when !*ok. */
+/* temp_c / humidity: one-decimal BME688 fields; lux: whole lux from the
+ * loaded TEMT6200. Empty CSV cells when the matching !*ok flag is set. */
 int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, uint16_t motion,
 			    int32_t batt_mv, float temp_c, bool temp_ok, float humidity,
-			    bool humidity_ok);
+			    bool humidity_ok, uint32_t lux, bool lux_ok);
 /* No observer column (constant per device, in the package folder). ADV names
  * JX_/JB_XXXXXX are stored as 7-char peer_id: X|B + 6 hex. */
 int juxta_log_append_ble_observation(struct juxta_log_context *ctx, uint32_t unix_time,

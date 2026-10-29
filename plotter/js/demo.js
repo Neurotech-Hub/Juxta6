@@ -1,4 +1,4 @@
-/* Synthetic jxta-nor-csv-v9 package for juxta6-0-prod demos (offline-safe). */
+/* Synthetic jxta-nor-csv-v10 package for juxta6-0-prod demos (offline-safe). */
 
 (function (global) {
   const DEMO_DATE = "20260921";
@@ -50,7 +50,7 @@
   }
 
   function buildJxv() {
-    const lines = ["sec,motion,batt_v,temp_c,humidity"];
+    const lines = ["sec,motion,batt_v,temp_c,humidity,lux"];
     const n = (HOURS * 3600) / VITALS_INTERVAL_S;
     for (let i = 0; i < n; i++) {
       const sec = PROD_START_SEC + i * VITALS_INTERVAL_S;
@@ -59,7 +59,8 @@
       const batt = (2.95 - 0.12 * t).toFixed(2);
       const temp = (22.4 + 1.8 * Math.sin(t * Math.PI * 2) + 0.3 * t).toFixed(1);
       const humidity = (41.0 + 6.0 * Math.sin(t * Math.PI * 2 + 0.8) - 1.5 * t).toFixed(1);
-      lines.push([sec, motion, batt, temp, humidity].join(","));
+      const lux = Math.max(0, Math.round(180 + 420 * Math.sin(t * Math.PI)));
+      lines.push([sec, motion, batt, temp, humidity, lux].join(","));
     }
     return lines.join("\n") + "\n";
   }

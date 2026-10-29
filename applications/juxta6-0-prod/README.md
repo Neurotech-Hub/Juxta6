@@ -1,15 +1,15 @@
 # juxta6-0-prod (M3)
 
 Juxta-style firmware for nRF54L15 Tag: shelf / magnet / **Hublink GATT sync** /
-dual-antenna advertising RSSI / ADXL motion + BME688 T/RH + VDD vitals /
+dual-antenna advertising RSSI / ADXL motion + BME688 T/RH + TEMT6200 lux + VDD vitals /
 **MX25L3233 NOR CSV** / **MCUboot SMP BLE DFU** (nRF Device Manager).
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
-SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v9`** (firmware **6.5.5**):
+SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v10`** (firmware **6.6.0**):
 
 | File | Columns |
 |------|---------|
-| JXV | `sec,motion,batt_v,temp_c,humidity` — day-relative `sec`; `temp_c` / `humidity` from BME688 one-shot at one decimal (`22.9,39.1`); empty cells if sample fails |
+| JXV | `sec,motion,batt_v,temp_c,humidity,lux` — day-relative `sec`; `temp_c` / `humidity` from BME688 one-shot at one decimal (`22.9,39.1`); `lux` is a whole number from the TEMT6200; empty cells if a sample fails |
 | JXB | `sec,peer_id,rssi` — `peer_id` is `X` (mobile) or `B` (base) + 6 MAC hex |
 | JXS | absolute `unix` events + `latitude,longitude` from gateway sync |
 
@@ -122,7 +122,7 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
 2. Hold **BTN1** 3–10 s → soft reboot → slow green blink, connectable Hublink
    advertising (`JX_*` / `JB_*` via `bt_set_name` + scan response; Hublink UUID in ADV).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.5.5`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
+   `6.6.0`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
    cadence); write **Gateway** JSON with `"timestamp": <unix>` plus optional
    `latitude` / `longitude` (and optional settings including `isBaseStation`).
    Open-Meteo outdoor temp is display-only on the phone — not sent to the tag.
@@ -140,7 +140,17 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
    data past a gap is always removed. While erasing, LIST returns `EOF` and
    file requests are refused.
 
-iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.5.5` / schema v9).
+iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.6.0` / schema v10).
+
+## 6.6.0 Light vitals
+
+JXV gains a `lux` column. Each vitals tick drives `LHT_SNS_CTRL` (`P2.06`) high
+for 10 ms, reads the TEMT6200 emitter on `LIGHT_SENSE` (`P1.14`, SAADC AIN7)
+through the 2.7 kΩ load, then drives the gate low again. Lux is
+`JUXTA_LIGHT_LUX_PER_MV` times that millivolt reading, with millivolts clamped
+at 0 so the result is never negative, rounded to a whole number. A failed read
+leaves the cell empty. Calibration points and the fit are in
+[`applications/tag-light`](../tag-light).
 
 ## 6.5.5 NOR hardening
 
@@ -167,7 +177,7 @@ Follows a bad JXV (garbled head, ~100 KB of `0xFF` padding) seen after 6.5.1 →
 ```
 JXS unix=<u> event=<name>
 JXB unix=<u> peer=JX_…|JB_… rssi=<dBm>
-JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c> humidity=<rh>
+JXV unix=<u> motion=<n> batt_mv=<mv> temp_c=<c> humidity=<rh> lux=<lux>
 ```
 
 ## Later milestones

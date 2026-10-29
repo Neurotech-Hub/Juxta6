@@ -100,7 +100,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 - Identity: `JX_` + last three bytes of BLE public identity (same rule as Juxta5-8 ble-range).
 - Channel Sounding is isolated in `lib/juxta_range/`. Apps must not call Nordic CS/RAS APIs directly.
 - No FUEL ADC on Tag (CR2032 direct).
-- Light sense (`tag-light`): TEMT6200 emitter on `P1.14` (AIN7); `P2.06` gates the 2.7 kΩ load FET.
+- Light sense (`tag-light`): TEMT6200 emitter on `P1.14` (AIN7); `P2.06` gates the 2.7 kΩ load FET. Lux calibration: see `applications/tag-light/README.md`.
 
 
 

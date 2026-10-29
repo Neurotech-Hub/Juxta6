@@ -21,21 +21,28 @@ void juxta_rtt_jxb(const char *peer, int8_t rssi)
 }
 
 void juxta_rtt_jxv(uint32_t motion, int32_t batt_mv, float temp_c, bool temp_ok, float humidity,
-		   bool humidity_ok)
+		   bool humidity_ok, uint32_t lux, bool lux_ok)
 {
 	uint32_t t = juxta_time_now();
+	char lux_field[16];
+
+	if (lux_ok) {
+		(void)snprintf(lux_field, sizeof(lux_field), "%u", lux);
+	} else {
+		(void)snprintf(lux_field, sizeof(lux_field), "nan");
+	}
 
 	if (temp_ok && humidity_ok) {
-		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=%.1f humidity=%.1f", t, motion,
-			(int)batt_mv, (double)temp_c, (double)humidity);
+		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=%.1f humidity=%.1f lux=%s", t,
+			motion, (int)batt_mv, (double)temp_c, (double)humidity, lux_field);
 	} else if (temp_ok) {
-		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=%.1f humidity=nan", t, motion,
-			(int)batt_mv, (double)temp_c);
+		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=%.1f humidity=nan lux=%s", t,
+			motion, (int)batt_mv, (double)temp_c, lux_field);
 	} else if (humidity_ok) {
-		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=nan humidity=%.1f", t, motion,
-			(int)batt_mv, (double)humidity);
+		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=nan humidity=%.1f lux=%s", t,
+			motion, (int)batt_mv, (double)humidity, lux_field);
 	} else {
-		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=nan humidity=nan", t, motion,
-			(int)batt_mv);
+		LOG_INF("JXV unix=%u motion=%u batt_mv=%d temp_c=nan humidity=nan lux=%s", t, motion,
+			(int)batt_mv, lux_field);
 	}
 }

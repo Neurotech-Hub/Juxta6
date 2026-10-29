@@ -81,7 +81,8 @@ function collectSummaryMetrics(data, tz) {
 
   const temps = jxv.map((r) => r.temp_c).filter((t) => Number.isFinite(t));
   const hums = jxv.map((r) => r.humidity).filter((h) => Number.isFinite(h));
-  if (temps.length > 0 || hums.length > 0) {
+  const luxes = jxv.map((r) => r.lux).filter((l) => Number.isFinite(l));
+  if (temps.length > 0 || hums.length > 0 || luxes.length > 0) {
     const tempLine =
       temps.length > 0
         ? `${Math.min(...temps).toFixed(1)}–${Math.max(...temps).toFixed(1)} °C`
@@ -90,16 +91,22 @@ function collectSummaryMetrics(data, tz) {
       hums.length > 0
         ? `${Math.min(...hums).toFixed(1)}–${Math.max(...hums).toFixed(1)} %`
         : "—";
+    const luxLine =
+      luxes.length > 0
+        ? `${Math.round(Math.min(...luxes))}–${Math.round(Math.max(...luxes))} lux`
+        : "—";
     cards.push({
       label: "Environment",
       value: "",
       copyLines: [
         temps.length > 0 ? `Temp: ${tempLine}` : null,
         hums.length > 0 ? `Humidity: ${humLine}` : null,
+        luxes.length > 0 ? `Light: ${luxLine}` : null,
       ].filter(Boolean),
       bodyHtml: `
         <div class="metric-row"><span class="metric-k">Temp</span><span class="metric-v">${escapeHtml(tempLine)}</span></div>
-        <div class="metric-row"><span class="metric-k">Humidity</span><span class="metric-v">${escapeHtml(humLine)}</span></div>`,
+        <div class="metric-row"><span class="metric-k">Humidity</span><span class="metric-v">${escapeHtml(humLine)}</span></div>
+        <div class="metric-row"><span class="metric-k">Light</span><span class="metric-v">${escapeHtml(luxLine)}</span></div>`,
     });
   }
 

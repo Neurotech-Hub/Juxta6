@@ -33,6 +33,7 @@
 #include "juxta_antenna.h"
 #include "juxta_checkpoint.h"
 #include "juxta_id.h"
+#include "juxta_light.h"
 #include "juxta_log.h"
 #include "juxta_motion.h"
 #include "juxta_prod.h"
@@ -960,16 +961,22 @@ static void production_vitals(void)
 	int32_t batt = mv < 0 ? 0 : mv;
 	float temp_c = 0.0f;
 	float humidity = 0.0f;
+	uint32_t lux = 0U;
 	bool temp_ok = false;
 	bool humidity_ok = false;
+	bool lux_ok = false;
 
 	juxta_motion_take(&m);
 	if (juxta_settings_get()->motion_logging == 0U) {
 		m.motion_count = 0U;
 	}
 
+	if (juxta_light_read_lux(&lux) == 0) {
+		lux_ok = true;
+	}
+
 	bme688_oneshot(&temp_c, &temp_ok, &humidity, &humidity_ok);
-	juxta_rtt_jxv(m.motion_count, batt, temp_c, temp_ok, humidity, humidity_ok);
+	juxta_rtt_jxv(m.motion_count, batt, temp_c, temp_ok, humidity, humidity_ok, lux, lux_ok);
 
 	/* Refresh the Node-read memory level here (main thread) — the NOR scan
 	 * must never run inline in the GATT read handler on the BT RX thread. */
@@ -1005,7 +1012,7 @@ static void production_vitals(void)
 	}
 
 	(void)juxta_log_append_vitals(&log_ctx, juxta_time_now(), (uint16_t)m.motion_count, batt,
-				      temp_c, temp_ok, humidity, humidity_ok);
+				      temp_c, temp_ok, humidity, humidity_ok, lux, lux_ok);
 }
 
 /*
@@ -1201,6 +1208,11 @@ int main(void)
 
 		LOG_INF("VDD ok batt_mv=%d pct~%u", (int)mv,
 			mv < 0 ? 0U : juxta_vdd_mv_to_percent_cr2032(mv));
+	}
+
+	err = juxta_light_init();
+	if (err) {
+		LOG_WRN("light_init (%d) — lux column left empty", err);
 	}
 
 	/*

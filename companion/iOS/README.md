@@ -1,6 +1,6 @@
 # Juxta6 (iOS companion)
 
-iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.5.0**, schema **`jxta-nor-csv-v9`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
+iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.6.0**, schema **`jxta-nor-csv-v10`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
 
 Open **`Juxta6.xcodeproj`**, scheme **Juxta6**, on a physical iPhone (BLE is not available in the Simulator).
 
@@ -13,7 +13,7 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 - iOS 17.0+
 - Xcode 15.0+
 - Physical Bluetooth-enabled iPhone
-- Tag running Juxta6 firmware **6.x** (current: `6.5.0`)
+- Tag running Juxta6 firmware **6.x** (current: `6.6.0`)
 - Location When In Use (optional) — used for gateway lat/lon; Open-Meteo outdoor °C is display-only on the clock
 
 ## Features
@@ -33,18 +33,18 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 3. Check one or more days → **Transfer Selected**. The button fills left to right as each file finishes.
 4. Browse offline under **Packages**. Each device card shows the last transfer time. Open it for **Upload All**, or check days to replace that with **Upload** and **Archive**. **Reset** clears the checkmarks. Export is one zip that expands to `DEVICE_ID/JX*YYYYMMDD.csv`. **Shelf Mode** / **Clear Memory** as needed.
 
-## CSV formats (schema v9)
+## CSV formats (schema v10)
 
 Filenames use the UTC calendar day (`JX{S|V|B}YYYYMMDD.csv`). Row times in JXV/JXB are **day-relative seconds** (`sec` = unix % 86400 UTC). Reconstruct absolute UTC as midnight of the filename date + `sec`.
 
 ### Vitals — `JXV<YYYYMMDD>.csv`
 
 ```csv
-sec,motion,batt_v,temp_c,humidity
-7200,3,2.95,22.9,39.1
+sec,motion,batt_v,temp_c,humidity,lux
+7200,3,2.95,22.9,39.1,412
 ```
 
-`temp_c` / `humidity` are BME688 one-shot values at one decimal (empty if sample failed).
+`temp_c` / `humidity` are BME688 one-shot values at one decimal (empty if sample failed). `lux` is a whole number from the TEMT6200 with its load FET on (empty if the sample failed).
 
 ### Settings — `JXS<YYYYMMDD>.csv`
 
@@ -68,7 +68,7 @@ See [`spec_HUBLINK.md`](spec_HUBLINK.md). UUIDs match `juxta6-0-prod`.
 
 ```json
 {
-  "firmwareVersion": "6.5.0",
+  "firmwareVersion": "6.6.0",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",

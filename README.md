@@ -2,7 +2,7 @@
 
 Monorepo for the **Juxta6** wireless Tag platform (nRF54L15): production firmware,
 hardware bring-up fixtures, an iOS companion, and a browser plotter for daily CSV
-logs (`jxta-nor-csv-v9`).
+logs (`jxta-nor-csv-v10`).
 
 | Area | What |
 | --- | --- |
@@ -61,7 +61,7 @@ logs (`jxta-nor-csv-v9`).
 │   ├── HIL_VALIDATION.md
 │   └── ...
 ├── companion/
-│   └── iOS/                       # Juxta6 Xcode companion (Hublink + schema v9)
+│   └── iOS/                       # Juxta6 Xcode companion (Hublink + schema v10)
 ├── plotter/                       # Juxta6 Plotter (static; GitHub Pages)
 ├── reference/juxta5-8/            # Frozen — do not west-build
 └── applications/
@@ -124,7 +124,7 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | App | Intent |
 | --- | --- |
 | `juxta6-0-prod` | Shelf / magnet / Hublink sync / dual-ant max-RSSI / live vitals / **MX25L3233 NOR CSV** + Filename/File Transfer; RTT mirrors. See [applications/juxta6-0-prod/README.md](applications/juxta6-0-prod/README.md). |
-| Companion | [companion/iOS](companion/iOS) — **Juxta6** Xcode app (firmware 6.x / `jxta-nor-csv-v9`). Open `Juxta6.xcodeproj` (not west). |
+| Companion | [companion/iOS](companion/iOS) — **Juxta6** Xcode app (firmware 6.x / `jxta-nor-csv-v10`). Open `Juxta6.xcodeproj` (not west). |
 | Plotter | [plotter/](plotter/) — **Juxta6 Plotter** ([https://neurotech-hub.github.io/Juxta6/](https://neurotech-hub.github.io/Juxta6/)). |
 
 ## Later milestones

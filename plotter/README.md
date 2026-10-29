@@ -1,6 +1,6 @@
 # JUXTA Plotter
 
-Client-side plotting for **Juxta6-0** Tag daily CSV exports (`jxta-nor-csv-v9`). Drop files into the page for interactive plots, a system-event table, and a shareable summary. Everything runs in the browser — no server, no data leaves your machine.
+Client-side plotting for **Juxta6-0** Tag daily CSV exports (`jxta-nor-csv-v10`). Drop files into the page for interactive plots, a system-event table, and a shareable summary. Everything runs in the browser — no server, no data leaves your machine.
 
 ## Brand / styling
 
@@ -16,15 +16,15 @@ The UI follows [`brand/JUXTA_BRAND.md`](../brand/JUXTA_BRAND.md) as a dark-navy 
 
 `https://neurotech-hub.github.io/Juxta6/`
 
-## Supported files (schema v9)
+## Supported files (schema v10)
 
 | Prefix | Contents | Columns |
 | --- | --- | --- |
-| `JXV` | Vitals | `sec,motion,batt_v,temp_c,humidity` |
+| `JXV` | Vitals | `sec,motion,batt_v,temp_c,humidity,lux` |
 | `JXB` | BLE peer sightings | `sec,peer_id,rssi` |
 | `JXS` | System / lifecycle events | absolute `unix` + event columns + `latitude,longitude` |
 
-Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UTC seconds; absolute time is UTC midnight of the filename date + `sec`. JXV `temp_c` / `humidity` are BME688 one-shot values at one decimal. JXB `peer_id` is **7 characters**: `X` (mobile) or `B` (base) + 6 MAC hex; the plotter reconstructs `JX_`/`JB_` labels on the BLE Peers axis. JXS lat/lon are filled on `time_set` (this sync) and `day_start` (last-known); other events leave them blank. Multiple days merge and sort by time; mixed `device_id` values in JXS trigger a warning.
+Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UTC seconds; absolute time is UTC midnight of the filename date + `sec`. JXV `temp_c` / `humidity` are BME688 one-shot values at one decimal, and `lux` is a whole number from the TEMT6200. JXB `peer_id` is **7 characters**: `X` (mobile) or `B` (base) + 6 MAC hex; the plotter reconstructs `JX_`/`JB_` labels on the BLE Peers axis. JXS lat/lon are filled on `time_set` (this sync) and `day_start` (last-known); other events leave them blank. Multiple days merge and sort by time; mixed `device_id` values in JXS trigger a warning.
 
 ## What it shows
 
@@ -33,13 +33,14 @@ Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UT
 - **Activity** — motion over time
 - **Battery** — voltage over time
 - **Temperature & humidity** — dual y-axis (temp left, humidity right)
+- **Light** — lux over time
 - **BLE peers** — one row per peer, colored by RSSI
 - **System events** — JXS table with timezone conversion and lat/lon
 - **Summary copy** — click-to-copy plain text (no duplicate device line)
 
 Timezone dropdown: Central, Eastern, or UTC (default). Data is recorded in UTC; selecting UTC shows timestamps as stored.
 
-**Demo:** use **Load demo data** (lower right under the drop zone) for a synthetic `jxta-nor-csv-v9` day (`JX_A1B2C3`, ~3 h production, includes a `B*` base peer) without uploading files.
+**Demo:** use **Load demo data** (lower right under the drop zone) for a synthetic `jxta-nor-csv-v10` day (`JX_A1B2C3`, ~3 h production, includes a `B*` base peer) without uploading files.
 
 Map tiles load from Esri (dark canvas) when a package has coordinates (approx. location visible to the tile CDN; CSV stays in-browser).
 

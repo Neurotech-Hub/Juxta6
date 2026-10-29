@@ -34,13 +34,13 @@ const PLOT_THEMES = {
     text: "rgba(255,255,255,0.72)",
     grid: "rgba(255,255,255,0.08)",
     axis: "rgba(255,255,255,0.20)",
-    series: { motion: BRAND.violet, battery: BRAND.blueLight, temp: BRAND.magenta, humidity: BRAND.blueLight },
+    series: { motion: BRAND.violet, battery: BRAND.blueLight, temp: BRAND.magenta, humidity: BRAND.blueLight, light: BRAND.violet },
   },
   light: {
     text: BRAND.navy,
     grid: "#E2E5EA",
     axis: "#C4C8D0",
-    series: { motion: BRAND.violet, battery: BRAND.blue, temp: BRAND.magenta, humidity: BRAND.blue },
+    series: { motion: BRAND.violet, battery: BRAND.blue, temp: BRAND.magenta, humidity: BRAND.blue, light: BRAND.violet },
   },
 };
 
@@ -191,6 +191,30 @@ function renderTempHumidPlot(jxv, tz, range) {
   }), PLOT_CONFIG);
 }
 
+function renderLightPlot(jxv, tz, range) {
+  if (jxv.length === 0) {
+    showEmpty("plot-light", "No JXV files loaded.");
+    return;
+  }
+  const x = jxv.map((r) => unixToTzString(r.unix, tz));
+  const abbr = TZ_ABBR[tz];
+
+  Plotly.newPlot("plot-light", [{
+    x,
+    y: jxv.map((r) => r.lux),
+    type: "scatter",
+    mode: "lines",
+    line: { color: theme().series.light, width: 1.75 },
+    name: "Light (lux)",
+    hovertemplate: "%{x}<br>Light: %{y:.0f} lux<extra></extra>",
+  }], Object.assign(baseLayout(), {
+    height: 260,
+    xaxis: xAxis(abbr, range),
+    yaxis: styledAxis({ title: { text: "Light (lux)" }, rangemode: "tozero" }),
+    showlegend: false,
+  }), PLOT_CONFIG);
+}
+
 function renderPeersPlot(jxb, tz, range) {
   if (jxb.length === 0) {
     showEmpty("plot-peers", "No JXB files loaded.");
@@ -241,5 +265,6 @@ function renderAllPlots(data, tz) {
   renderActivityPlot(data.jxv, tz, range);
   renderBatteryPlot(data.jxv, tz, range);
   renderTempHumidPlot(data.jxv, tz, range);
+  renderLightPlot(data.jxv, tz, range);
   renderPeersPlot(data.jxb, tz, range);
 }

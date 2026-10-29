@@ -3374,6 +3374,7 @@ struct VitalsRow: Identifiable {
     let battV: Double?
     let tempC: Double?
     let humidity: Double?
+    let lux: Double?
     let motion: Double?
 }
 
@@ -3413,7 +3414,7 @@ private func trimCsvCell(_ raw: Substring) -> String {
     return s
 }
 
-/// Reconstruct absolute UTC `Date` from package day key (`YYYYMMDD`) + seconds since that day's UTC midnight (schema jxta-nor-csv-v8).
+/// Reconstruct absolute UTC `Date` from package day key (`YYYYMMDD`) + seconds since that day's UTC midnight (schema jxta-nor-csv-v10).
 private func dateFromUTCDayKey(_ dateKey: String, sec: Int) -> Date? {
     guard dateKey.count == 8, dateKey.allSatisfy({ $0.isNumber }) else { return nil }
     guard let y = Int(dateKey.prefix(4)),
@@ -3574,7 +3575,7 @@ private func readFullFileText(at url: URL) -> String? {
 }
 
 private func vitalsRow(from cols: [String], map: CsvColumnMap, id: Int, dateKey: String) -> VitalsRow? {
-    // JXV (jxta-nor-csv-v8): sec,motion,batt_v,temp_c,humidity
+    // JXV (jxta-nor-csv-v10): sec,motion,batt_v,temp_c,humidity,lux
     guard let secIdx = map.index(of: "sec"), secIdx < cols.count,
           let sec = parseCsvInt(cols[secIdx]),
           let date = dateFromUTCDayKey(dateKey, sec: sec) else { return nil }
@@ -3588,6 +3589,7 @@ private func vitalsRow(from cols: [String], map: CsvColumnMap, id: Int, dateKey:
         battV: parseCsvDouble(col("batt_v")),
         tempC: parseCsvDouble(col("temp_c")),
         humidity: parseCsvDouble(col("humidity")),
+        lux: parseCsvDouble(col("lux")),
         motion: parseCsvDouble(col("motion"))
     )
 }
@@ -3810,6 +3812,18 @@ struct PlotsView: View {
                     }
                     .chartXAxis(.hidden)
                     .allowsHitTesting(false)
+                }
+            }
+        }
+        chartCard(title: "Light (lux)") {
+            Chart {
+                ForEach(vitalsRows) { row in
+                    if let lux = row.lux {
+                        LineMark(
+                            x: .value("Time", row.date),
+                            y: .value("Lux", lux)
+                        )
+                    }
                 }
             }
         }

@@ -2,7 +2,7 @@
 
 Contract between the **Juxta6** iOS companion and **juxta6-0-prod** Tags. Service UUID: `57617368-5501-0001-8000-00805f9b34fb`. Advertising name: `JX_*` (Mobile Tag) or `JB_*` (Base Station) + last 6 hex of public address = `deviceId`.
 
-Firmware reference: `applications/juxta6-0-prod` (current ship **6.5.0**, log schema **`jxta-nor-csv-v9`**).
+Firmware reference: `applications/juxta6-0-prod` (current ship **6.6.0**, log schema **`jxta-nor-csv-v10`**).
 
 ## Characteristics
 
@@ -12,7 +12,7 @@ CamelCase JSON status + settings:
 
 ```json
 {
-  "firmwareVersion": "6.5.0",
+  "firmwareVersion": "6.6.0",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
@@ -100,12 +100,12 @@ Documents/
     JXB20260507.csv
 ```
 
-## NOR CSV (schema v9)
+## NOR CSV (schema v10)
 
 | File | Columns |
 | --- | --- |
 | JXS | `unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude` |
-| JXV | `sec,motion,batt_v,temp_c,humidity` |
+| JXV | `sec,motion,batt_v,temp_c,humidity,lux` |
 | JXB | `sec,peer_id,rssi` |
 
-`sec` is day-relative UTC seconds (`unix % 86400`). Absolute time = UTC midnight of `YYYYMMDD` + `sec`. JXB `peer_id` is `X` or `B` + 6 hex (reconstruct `JX_`/`JB_` for display).
+`sec` is day-relative UTC seconds (`unix % 86400`). Absolute time = UTC midnight of `YYYYMMDD` + `sec`. JXV `lux` is a whole number from the TEMT6200 (empty cell if the sample failed). JXB `peer_id` is `X` or `B` + 6 hex (reconstruct `JX_`/`JB_` for display).

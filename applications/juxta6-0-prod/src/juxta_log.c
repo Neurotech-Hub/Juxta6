@@ -51,8 +51,8 @@ static const struct log_region regions[] = {
 	 JXS_START, JXS_SIZE},
 	/* JXV/JXB: day-relative seconds ("sec" = unix % 86400 UTC; date in
 	 * filename). JXB peer_id is X|B + 6 hex (mobile/base). JXS: absolute
-	 * unix + lat/lon. JXV: BME688 temp_c + humidity (%.1f). */
-	{JUXTA_LOG_JXV, "JXV", "sec,motion,batt_v,temp_c,humidity\n", JXV_START, JXV_SIZE},
+	 * unix + lat/lon. JXV: BME688 temp_c + humidity (%.1f) and TEMT6200 lux. */
+	{JUXTA_LOG_JXV, "JXV", "sec,motion,batt_v,temp_c,humidity,lux\n", JXV_START, JXV_SIZE},
 	{JUXTA_LOG_JXB, "JXB", "sec,peer_id,rssi\n", JXB_START, JXB_SIZE},
 };
 
@@ -1516,7 +1516,7 @@ out:
 
 int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, uint16_t motion,
 			    int32_t batt_mv, float temp_c, bool temp_ok, float humidity,
-			    bool humidity_ok)
+			    bool humidity_ok, uint32_t lux, bool lux_ok)
 {
 	static char row[96];
 	int volts = batt_mv / 1000;
@@ -1525,6 +1525,7 @@ int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, u
 	int rc;
 	char temp_field[16];
 	char hum_field[16];
+	char lux_field[16];
 
 	if (!ctx)
 	{
@@ -1541,6 +1542,11 @@ int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, u
 	} else {
 		hum_field[0] = '\0';
 	}
+	if (lux_ok) {
+		(void)snprintf(lux_field, sizeof(lux_field), "%u", lux);
+	} else {
+		lux_field[0] = '\0';
+	}
 
 	LOG_LOCK();
 
@@ -1556,16 +1562,17 @@ int juxta_log_append_vitals(struct juxta_log_context *ctx, uint32_t unix_time, u
 		goto out;
 	}
 
-	len = snprintf(row, sizeof(row), "%u,%u,%d.%02d,%s,%s\n", DAY_RELATIVE_S(unix_time),
-		       motion, volts, centivolts, temp_field, hum_field);
+	len = snprintf(row, sizeof(row), "%u,%u,%d.%02d,%s,%s,%s\n", DAY_RELATIVE_S(unix_time),
+		       motion, volts, centivolts, temp_field, hum_field, lux_field);
 	if (len < 0 || len >= (int)sizeof(row))
 	{
 		rc = -ENOSPC;
 		goto out;
 	}
 
-	LOG_INF("JXV[%u] motion=%u batt=%d.%02dV temp=%s humidity=%s", unix_time, motion, volts,
-		centivolts, temp_ok ? temp_field : "-", humidity_ok ? hum_field : "-");
+	LOG_INF("JXV[%u] motion=%u batt=%d.%02dV temp=%s humidity=%s lux=%s", unix_time, motion,
+		volts, centivolts, temp_ok ? temp_field : "-", humidity_ok ? hum_field : "-",
+		lux_ok ? lux_field : "-");
 	rc = append_row(ctx, JUXTA_LOG_JXV, row);
 
 out:

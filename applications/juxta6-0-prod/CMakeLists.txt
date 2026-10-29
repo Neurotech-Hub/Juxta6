@@ -11,6 +11,7 @@ target_sources(app PRIVATE
 	src/juxta_rtt_log.c
 	src/juxta_antenna.c
 	src/juxta_log.c
+	src/juxta_light.c
 	src/juxta_checkpoint.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../lib/juxta_id/src/juxta_id.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../lib/juxta_motion/src/juxta_motion.c

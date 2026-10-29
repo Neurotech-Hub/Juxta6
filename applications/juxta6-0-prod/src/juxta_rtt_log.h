@@ -7,6 +7,6 @@
 void juxta_rtt_jxs(const char *event);
 void juxta_rtt_jxb(const char *peer, int8_t rssi);
 void juxta_rtt_jxv(uint32_t motion, int32_t batt_mv, float temp_c, bool temp_ok, float humidity,
-		   bool humidity_ok);
+		   bool humidity_ok, uint32_t lux, bool lux_ok);
 
 #endif /* JUXTA_RTT_LOG_H_ */

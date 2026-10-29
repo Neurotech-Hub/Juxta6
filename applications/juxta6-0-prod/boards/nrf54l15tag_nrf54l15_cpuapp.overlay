@@ -7,7 +7,17 @@
 
 / {
 	zephyr,user {
-		io-channels = <&adc 0>;
+		/* 0 = internal VDD (lib/juxta_vdd), 1 = LIGHT_SENSE (src/juxta_light). */
+		io-channels = <&adc 0>, <&adc 1>;
+	};
+
+	lht_sns {
+		compatible = "gpio-leds";
+
+		/* RV2C010UNT2L gate. Active-high connects the 2.7 kΩ load. */
+		lht_sns_ctrl: lht_sns_ctrl {
+			gpios = <&gpio2 6 GPIO_ACTIVE_HIGH>;
+		};
 	};
 
 	aliases {
@@ -42,6 +52,19 @@
 		zephyr,oversampling = <8>;
 		zephyr,vref-mv = <900>;
 		zephyr,input-positive = <NRF_SAADC_VDD>;
+	};
+
+	/* LIGHT_SENSE, P1.14. External pin can swing toward VDD, so GAIN_1_4
+	 * with the 0.9 V reference (full scale 3.6 V). GAIN_1 clips above 0.9 V. */
+	channel@1 {
+		reg = <1>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <14>;
+		zephyr,oversampling = <8>;
+		zephyr,vref-mv = <900>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;
 	};
 };
 
