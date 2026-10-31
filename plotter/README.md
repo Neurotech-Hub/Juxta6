@@ -46,6 +46,7 @@ Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UT
 - **Light** — lux over time
 - **BLE peers** — one row per peer, colored by RSSI
 - **Peer network** — weighted graph with this device at the center and one node per JXB peer, aggregated over every loaded day. Edge width and node size = number of sightings; edge length and color = mean RSSI (shorter and warmer = stronger, same color scale as BLE peers); dotted rings mark reference RSSI levels. Hover a node for sightings, mean/min/max RSSI, and first/last seen. Shows the 40 most-seen peers if there are more
+- **Lifecycle timeline** — stepped JXS state chart (event held until the next); y-axis uses the canonical lifecycle order so out-of-sequence runs zigzag
 - **System events** — JXS table with timezone conversion and lat/lon
 - **Summary copy** — click-to-copy plain text (no duplicate device line)
 
