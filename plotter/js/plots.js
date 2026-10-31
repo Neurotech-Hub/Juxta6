@@ -303,6 +303,147 @@ function renderPeersPlot(jxb, tz, range) {
   }), PLOT_CONFIG);
 }
 
+/**
+ * Canonical JXS lifecycle order (bottom → top). A normal shelf-wake cycle
+ * climbs this ladder; zigzags make out-of-order sequences easy to spot.
+ * Unknown event names sort alphabetically after these known ones.
+ */
+const LIFECYCLE_EVENT_ORDER = [
+  "day_start",
+  "shelf_exit",
+  "boot",
+  "user_connected",
+  "time_set",
+  "user_disconnected",
+  "settings_changed",
+  "dfu_requested",
+  "low_battery",
+  "por_recovery",
+  "wdt_recovery_dog",
+  "wdt_recovery_sreq",
+  "wdt_recovery_lockup",
+  "wdt_recovery_no_rtc",
+  "shelf_entry",
+];
+
+function lifecycleEventRank(name) {
+  const i = LIFECYCLE_EVENT_ORDER.indexOf(name);
+  return i >= 0 ? i : LIFECYCLE_EVENT_ORDER.length;
+}
+
+/** Y-axis categories present in `jxs`, ordered by the canonical lifecycle ladder. */
+function lifecycleCategoryOrder(jxs) {
+  const present = [...new Set(jxs.map((r) => r.event || "").filter(Boolean))];
+  present.sort((a, b) => {
+    const ra = lifecycleEventRank(a);
+    const rb = lifecycleEventRank(b);
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
+  return present;
+}
+
+/**
+ * Stepped lifecycle timeline: each JXS event is a state held until the next
+ * event. `hv` draws horizontal holds then vertical transitions. The final
+ * state is extended to `holdUntilUnix` (vitals/peers end) when that is later.
+ */
+function renderLifecyclePlot(jxs, tz, holdUntilUnix) {
+  const note = document.getElementById("lifecycle-note");
+  if (jxs.length === 0) {
+    showEmpty("plot-lifecycle", "No JXS files loaded.");
+    if (note) {
+      note.hidden = true;
+      note.textContent = "";
+    }
+    return;
+  }
+  const events = jxs.filter((r) => r.event);
+  if (events.length === 0) {
+    showEmpty("plot-lifecycle", "No JXS events to plot.");
+    if (note) {
+      note.hidden = true;
+      note.textContent = "";
+    }
+    return;
+  }
+  const abbr = TZ_ABBR[tz];
+  const categories = lifecycleCategoryOrder(events);
+
+  const eventXs = events.map((r) => unixToTzString(r.unix, tz));
+  const eventYs = events.map((r) => r.event);
+  const last = events[events.length - 1];
+  const endUnix = Math.max(
+    last.unix,
+    Number.isFinite(holdUntilUnix) ? holdUntilUnix : last.unix
+  );
+
+  // Line points include a synthetic tip so the last state holds through the
+  // rest of the loaded package; markers stay on real JXS rows only.
+  const lineXs = eventXs.slice();
+  const lineYs = eventYs.slice();
+  if (endUnix > last.unix) {
+    lineXs.push(unixToTzString(endUnix, tz));
+    lineYs.push(last.event);
+  }
+
+  const layout = Object.assign(baseLayout(), {
+    // Extra left margin so longer event names clear the axis title.
+    margin: { l: 128, r: 40, t: 10, b: 66 },
+    height: Math.max(240, 90 + categories.length * 36),
+    xaxis: xAxis(abbr, [
+      unixToTzString(events[0].unix, tz),
+      unixToTzString(endUnix, tz),
+    ]),
+    yaxis: styledAxis({
+      title: { text: "Event" },
+      type: "category",
+      categoryorder: "array",
+      categoryarray: categories,
+      tickfont: { size: 10 },
+    }),
+    showlegend: false,
+  });
+
+  const traces = [];
+  if (lineXs.length >= 2) {
+    traces.push({
+      x: lineXs,
+      y: lineYs,
+      type: "scatter",
+      mode: "lines",
+      line: {
+        color: theme().series.motion,
+        width: 2,
+        shape: "hv",
+      },
+      hoverinfo: "skip",
+      showlegend: false,
+    });
+  }
+  traces.push({
+    x: eventXs,
+    y: eventYs,
+    type: "scatter",
+    mode: "markers",
+    marker: {
+      color: theme().series.temp,
+      size: 8,
+    },
+    customdata: events.map((r) => r.device_id || ""),
+    hovertemplate: "%{y}<br>%{x}<br>%{customdata}<extra></extra>",
+    showlegend: false,
+  });
+
+  Plotly.newPlot("plot-lifecycle", traces, layout, PLOT_CONFIG);
+
+  if (note) {
+    note.textContent =
+      "Each event is held as device state until the next event. Y-axis order is the canonical lifecycle ladder — zigzags mean out-of-order transitions.";
+    note.hidden = false;
+  }
+}
+
 function renderAllPlots(data, tz) {
   const range = sharedTimeRange(data.jxv, data.jxb, tz);
   renderActivityPlot(data.jxv, tz, range);
@@ -311,4 +452,8 @@ function renderAllPlots(data, tz) {
   renderLightPlot(data.jxv, tz, range);
   renderPeersPlot(data.jxb, tz, range);
   renderNetworkGraph(data, tz);
+  const holdUntil = [...data.jxv, ...data.jxb, ...data.jxs]
+    .map((r) => r.unix)
+    .reduce((m, u) => (u > m ? u : m), -Infinity);
+  renderLifecyclePlot(data.jxs, tz, Number.isFinite(holdUntil) ? holdUntil : null);
 }
