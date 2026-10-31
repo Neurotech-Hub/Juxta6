@@ -77,13 +77,10 @@ final class ScanPlotModel: ObservableObject {
 // MARK: - Style
 
 private enum ScanPlotStyle {
-    static let background = Color(red: 0.067, green: 0.090, blue: 0.275)      // surface-1 #111746
     // Brand violet / blue, lightened so they read on the navy panel.
     static let connectable = Color(red: 0.655, green: 0.545, blue: 0.980)     // Violet #A78BFA
     static let nonConnectable = Color(red: 0.376, green: 0.647, blue: 0.980)  // Blue #60A5FA
 
-    static let rssiMin = -100.0
-    static let rssiMax = -30.0
     static let ringDuration: TimeInterval = 10
     static let ringStartScale: CGFloat = 3
     static let dotRadius: CGFloat = 4
@@ -94,6 +91,49 @@ private enum ScanPlotStyle {
     static func color(connectable: Bool) -> Color { connectable ? Self.connectable : Self.nonConnectable }
 }
 
+/// Y range fitted to the sightings, snapped to a 5 or 10 dBm tick. Empty plots keep −100…−30.
+private struct ScanPlotDomain {
+    let min: Double
+    let max: Double
+    let step: Double
+
+    /// Placeholder grid before any advertisement arrives.
+    static let empty = ScanPlotDomain(min: -100, max: -30, step: 10)
+
+    private init(min: Double, max: Double, step: Double) {
+        self.min = min
+        self.max = max
+        self.step = step
+    }
+
+    init(sightings: [ScanPlotSighting]) {
+        guard let lo = sightings.map(\.rssi).min(), let hi = sightings.map(\.rssi).max() else {
+            self = .empty
+            return
+        }
+        // A few dBm of pad, and at least a 20 dBm window, so dots sit inside the grid.
+        let pad = 4.0
+        var lower = Double(lo) - pad
+        var upper = Double(hi) + pad
+        if upper - lower < 20 {
+            let mid = (Double(lo) + Double(hi)) / 2
+            lower = mid - 10
+            upper = mid + 10
+        }
+        let step = (upper - lower) > 30 ? 10.0 : 5.0
+        let snappedMin = floor(lower / step) * step
+        var snappedMax = ceil(upper / step) * step
+        if snappedMax <= snappedMin { snappedMax = snappedMin + step }
+        self.min = snappedMin
+        self.max = snappedMax
+        self.step = step
+    }
+
+    var ticks: [Int] {
+        Array(stride(from: Int(min), through: Int(max), by: Int(step)))
+    }
+}
+
 private struct ScanPlotLayout {
     static let left: CGFloat = 30
     static let right: CGFloat = 8
@@ -102,6 +142,7 @@ private struct ScanPlotLayout {
 
     let size: CGSize
     let deviceCount: Int
+    let domain: ScanPlotDomain
 
     var plot: CGRect {
         CGRect(x: Self.left,
@@ -115,9 +156,9 @@ private struct ScanPlotLayout {
     func x(slot: Int) -> CGFloat { plot.minX + (CGFloat(slot) + 0.5) * slotWidth }
 
     func y(rssi: Int) -> CGFloat {
-        let clamped = min(max(Double(rssi), ScanPlotStyle.rssiMin), ScanPlotStyle.rssiMax)
-        let t = (clamped - ScanPlotStyle.rssiMin) / (ScanPlotStyle.rssiMax - ScanPlotStyle.rssiMin)
-        return plot.maxY - CGFloat(t) * plot.height
+        let span = domain.max - domain.min
+        let t = span > 0 ? (Double(rssi) - domain.min) / span : 0.5
+        return plot.maxY - CGFloat(min(max(t, 0), 1)) * plot.height
     }
 }
 
@@ -161,7 +202,7 @@ struct ScanRSSIPlotPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(ScanPlotStyle.background))
+        .background(ScanPlotBackground())
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
@@ -197,6 +238,54 @@ struct ScanRSSIPlotPanel: View {
     }
 }
 
+// MARK: - Background (welcome-screen aesthetic)
+
+/// Deep navy with soft, blurred blue / violet / magenta glows, echoing the launch screen. Kept dim so dots and labels stay readable.
+private struct ScanPlotBackground: View {
+    private let blue = Color(red: 0.145, green: 0.388, blue: 0.922)     // #2563EB
+    private let violet = Color(red: 0.545, green: 0.361, blue: 0.965)   // #8B5CF6
+    private let magenta = Color(red: 0.925, green: 0.051, blue: 0.851)  // #EC0DD9
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12)
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 0.02, green: 0.04, blue: 0.16), Color(red: 0.043, green: 0.059, blue: 0.231)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                // Large, heavily blurred color washes: blue low-left, violet through the middle, magenta glow upper-right.
+                // Only the washes are blurred, so the navy base stays solid to the panel edges.
+                ZStack {
+                    Ellipse()
+                        .fill(blue)
+                        .frame(width: w * 0.8, height: h * 0.7)
+                        .position(x: w * 0.12, y: h * 0.95)
+                        .opacity(0.55)
+                    Ellipse()
+                        .fill(violet)
+                        .frame(width: w * 0.7, height: h * 0.7)
+                        .position(x: w * 0.55, y: h * 0.62)
+                        .opacity(0.4)
+                    Ellipse()
+                        .fill(magenta)
+                        .frame(width: w * 0.55, height: h * 0.6)
+                        .position(x: w * 0.98, y: h * 0.1)
+                        .opacity(0.5)
+                }
+                .blur(radius: 38)
+            }
+            .frame(width: w, height: h)
+        }
+        .clipShape(shape)
+        .overlay(shape.stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+    }
+}
+
 // MARK: - Static layer (axes, labels, dots)
 
 private struct ScanPlotStaticCanvas: View {
@@ -206,11 +295,11 @@ private struct ScanPlotStaticCanvas: View {
         Canvas { context, size in
             let devices = model.devices
             let sightings = model.sightings
-            let layout = ScanPlotLayout(size: size, deviceCount: devices.count)
+            let layout = ScanPlotLayout(size: size, deviceCount: devices.count,
+                                         domain: ScanPlotDomain(sightings: sightings))
             let plot = layout.plot
 
-            // Fixed RSSI axis.
-            for dbm in stride(from: Int(ScanPlotStyle.rssiMin), through: Int(ScanPlotStyle.rssiMax), by: 10) {
+            for dbm in layout.domain.ticks {
                 let y = layout.y(rssi: dbm)
                 var line = Path()
                 line.move(to: CGPoint(x: plot.minX, y: y))
@@ -278,7 +367,8 @@ private struct ScanPlotRingOverlay: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isScanning)) { timeline in
             Canvas { context, size in
                 guard isScanning else { return }
-                let layout = ScanPlotLayout(size: size, deviceCount: model.devices.count)
+                let layout = ScanPlotLayout(size: size, deviceCount: model.devices.count,
+                                             domain: ScanPlotDomain(sightings: model.sightings))
 
                 for (slot, device) in model.devices.enumerated() {
                     guard let latest = model.latestByDevice[device.id] else { continue }
