@@ -24,23 +24,40 @@ const BRAND = {
   blue: "#2563EB",
   violet: "#8B5CF6",
   magenta: "#EC0DD9",
-  // Lighter blue tint so a thin line stays legible on navy.
-  blueLight: "#5B8DEF",
+  // Lighter tints so thin lines and dots stay legible over the glowing panels
+  // (same tints the iOS app uses for its RSSI plot).
+  blueLight: "#60A5FA",
+  violetLight: "#A78BFA",
+  magentaLight: "#F472E6",
 };
 
 // Screen is dark navy; print swaps to a light theme via setPlotTheme().
 const PLOT_THEMES = {
   dark: {
-    text: "rgba(255,255,255,0.72)",
-    grid: "rgba(255,255,255,0.08)",
-    axis: "rgba(255,255,255,0.20)",
-    series: { motion: BRAND.violet, battery: BRAND.blueLight, temp: BRAND.magenta, humidity: BRAND.blueLight, light: BRAND.violet },
+    text: "rgba(255,255,255,0.80)",
+    grid: "rgba(255,255,255,0.10)",
+    axis: "rgba(255,255,255,0.26)",
+    series: {
+      motion: BRAND.violetLight,
+      battery: BRAND.blueLight,
+      temp: BRAND.magentaLight,
+      humidity: BRAND.blueLight,
+      light: BRAND.violetLight,
+    },
+    // Soft area fill under single-series plots.
+    fill: { motion: "rgba(167,139,250,0.16)", light: "rgba(167,139,250,0.16)" },
+    // RSSI scale (weak -> strong): blue -> violet -> magenta.
+    rssiScale: [[0, BRAND.blueLight], [0.55, BRAND.violetLight], [1, BRAND.magentaLight]],
+    nodeOutline: "rgba(255,255,255,0.9)",
   },
   light: {
     text: BRAND.navy,
     grid: "#E2E5EA",
     axis: "#C4C8D0",
     series: { motion: BRAND.violet, battery: BRAND.blue, temp: BRAND.magenta, humidity: BRAND.blue, light: BRAND.violet },
+    fill: { motion: "rgba(139,92,246,0.10)", light: "rgba(139,92,246,0.10)" },
+    rssiScale: [[0, BRAND.blue], [0.55, BRAND.violet], [1, BRAND.magenta]],
+    nodeOutline: BRAND.navy,
   },
 };
 
@@ -59,7 +76,8 @@ function theme() {
 function baseLayout() {
   const t = theme();
   return {
-    margin: { l: 90, r: 130, t: 10, b: 45 },
+    // Bottom margin leaves room for two-line date ticks on multi-day axes above the title.
+    margin: { l: 90, r: 130, t: 10, b: 66 },
     font: { family: "Plus Jakarta Sans, Inter, Helvetica Neue, Arial, sans-serif", size: 12, color: t.text },
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
@@ -81,6 +99,51 @@ function styledAxis(extra) {
 function showEmpty(elId, message) {
   const el = document.getElementById(elId);
   el.innerHTML = `<p class="empty-note">${message}</p>`;
+}
+
+/**
+ * Split time-sorted rows into contiguous runs. When the time between two consecutive
+ * rows is much larger than the usual sampling interval (e.g. the tag sat on the
+ * shelf between days) a new run starts, so neither the line nor an area fill draws
+ * a misleading segment across the gap.
+ */
+function seriesSegments(rows, valueKey, tz) {
+  const segments = [];
+  if (rows.length === 0) return segments;
+
+  const deltas = [];
+  for (let i = 1; i < rows.length; i++) deltas.push(rows[i].unix - rows[i - 1].unix);
+  deltas.sort((a, b) => a - b);
+  const median = deltas.length > 0 ? deltas[Math.floor(deltas.length / 2)] : 60;
+  const gapSeconds = Math.max(900, median * 5);
+
+  let current = { x: [], y: [] };
+  for (let i = 0; i < rows.length; i++) {
+    if (i > 0 && rows[i].unix - rows[i - 1].unix > gapSeconds) {
+      segments.push(current);
+      current = { x: [], y: [] };
+    }
+    current.x.push(unixToTzString(rows[i].unix, tz));
+    current.y.push(rows[i][valueKey]);
+  }
+  segments.push(current);
+  return segments;
+}
+
+/** One trace per contiguous run; only the first shows in the legend. `base` carries styling. */
+function segmentTraces(rows, valueKey, tz, base) {
+  return seriesSegments(rows, valueKey, tz).map((seg, i) =>
+    Object.assign({}, base, {
+      x: seg.x,
+      y: seg.y,
+      type: "scatter",
+      // A run of one sample would draw nothing as a line.
+      mode: seg.x.length === 1 ? "markers" : "lines",
+      marker: { color: base.line.color, size: 4 },
+      legendgroup: base.name,
+      showlegend: i === 0,
+    })
+  );
 }
 
 // Shared x-axis range across JXV and JXB so all time plots align.
@@ -105,18 +168,15 @@ function renderActivityPlot(jxv, tz, range) {
     showEmpty("plot-activity", "No JXV files loaded.");
     return;
   }
-  const x = jxv.map((r) => unixToTzString(r.unix, tz));
   const abbr = TZ_ABBR[tz];
 
-  Plotly.newPlot("plot-activity", [{
-    x,
-    y: jxv.map((r) => r.motion),
-    type: "scatter",
-    mode: "lines",
+  Plotly.newPlot("plot-activity", segmentTraces(jxv, "motion", tz, {
+    fill: "tozeroy",
+    fillcolor: theme().fill.motion,
     line: { color: theme().series.motion, width: 1.75 },
     name: "Motion",
     hovertemplate: "%{x}<br>Motion: %{y}<extra></extra>",
-  }], Object.assign(baseLayout(), {
+  }), Object.assign(baseLayout(), {
     height: 260,
     xaxis: xAxis(abbr, range),
     yaxis: styledAxis({ title: { text: "Motion count" }, rangemode: "tozero" }),
@@ -129,18 +189,13 @@ function renderBatteryPlot(jxv, tz, range) {
     showEmpty("plot-battery", "No JXV files loaded.");
     return;
   }
-  const x = jxv.map((r) => unixToTzString(r.unix, tz));
   const abbr = TZ_ABBR[tz];
 
-  Plotly.newPlot("plot-battery", [{
-    x,
-    y: jxv.map((r) => r.batt_v),
-    type: "scatter",
-    mode: "lines",
+  Plotly.newPlot("plot-battery", segmentTraces(jxv, "batt_v", tz, {
     line: { color: theme().series.battery, width: 1.75 },
     name: "Battery (V)",
     hovertemplate: "%{x}<br>Battery: %{y:.2f} V<extra></extra>",
-  }], Object.assign(baseLayout(), {
+  }), Object.assign(baseLayout(), {
     height: 260,
     xaxis: xAxis(abbr, range),
     yaxis: styledAxis({ title: { text: "Battery (V)" }, tickformat: ".2f" }),
@@ -153,29 +208,20 @@ function renderTempHumidPlot(jxv, tz, range) {
     showEmpty("plot-temp-humid", "No JXV files loaded.");
     return;
   }
-  const x = jxv.map((r) => unixToTzString(r.unix, tz));
   const abbr = TZ_ABBR[tz];
 
   Plotly.newPlot("plot-temp-humid", [
-    {
-      x,
-      y: jxv.map((r) => r.temp_c),
-      type: "scatter",
-      mode: "lines",
+    ...segmentTraces(jxv, "temp_c", tz, {
       line: { color: theme().series.temp, width: 1.75 },
       name: "Temp (°C)",
       hovertemplate: "%{x}<br>Temp: %{y:.1f} °C<extra></extra>",
-    },
-    {
-      x,
-      y: jxv.map((r) => r.humidity),
-      type: "scatter",
-      mode: "lines",
+    }),
+    ...segmentTraces(jxv, "humidity", tz, {
       line: { color: theme().series.humidity, width: 1.75 },
       name: "Humidity (%)",
       yaxis: "y2",
       hovertemplate: "%{x}<br>Humidity: %{y:.1f} %<extra></extra>",
-    },
+    }),
   ], Object.assign(baseLayout(), {
     height: 280,
     xaxis: xAxis(abbr, range),
@@ -196,18 +242,15 @@ function renderLightPlot(jxv, tz, range) {
     showEmpty("plot-light", "No JXV files loaded.");
     return;
   }
-  const x = jxv.map((r) => unixToTzString(r.unix, tz));
   const abbr = TZ_ABBR[tz];
 
-  Plotly.newPlot("plot-light", [{
-    x,
-    y: jxv.map((r) => r.lux),
-    type: "scatter",
-    mode: "lines",
+  Plotly.newPlot("plot-light", segmentTraces(jxv, "lux", tz, {
+    fill: "tozeroy",
+    fillcolor: theme().fill.light,
     line: { color: theme().series.light, width: 1.75 },
     name: "Light (lux)",
     hovertemplate: "%{x}<br>Light: %{y:.0f} lux<extra></extra>",
-  }], Object.assign(baseLayout(), {
+  }), Object.assign(baseLayout(), {
     height: 260,
     xaxis: xAxis(abbr, range),
     yaxis: styledAxis({ title: { text: "Light (lux)" }, rangemode: "tozero" }),
@@ -233,7 +276,7 @@ function renderPeersPlot(jxb, tz, range) {
       size: 8,
       color: jxb.map((r) => r.rssi),
       // Brand gradient as a sequential scale: weak = blue, strong = magenta.
-      colorscale: [[0, BRAND.blue], [0.55, BRAND.violet], [1, BRAND.magenta]],
+      colorscale: theme().rssiScale,
       cmin: -95,
       cmax: -55,
       colorbar: {
@@ -267,4 +310,5 @@ function renderAllPlots(data, tz) {
   renderTempHumidPlot(data.jxv, tz, range);
   renderLightPlot(data.jxv, tz, range);
   renderPeersPlot(data.jxb, tz, range);
+  renderNetworkGraph(data, tz);
 }

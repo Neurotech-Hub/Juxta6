@@ -16,12 +16,23 @@ body {
   font-size: 15px;
   line-height: 1.5;
   color: var(--juxta-text);
-  background-color: var(--juxta-bg);
-  /* One supporting device: a soft radial glow anchored to the header. */
-  background-image:
-    radial-gradient(900px 420px at 18% -10%, rgba(139, 92, 246, 0.22), transparent 70%),
-    radial-gradient(700px 360px at 92% 0%, rgba(37, 99, 235, 0.16), transparent 70%);
-  background-repeat: no-repeat;
+  background-color: #060826;
+}
+
+/* Ambient aurora behind everything — the same blurred blue / violet / magenta
+ * washes the iOS app uses, fixed so cards and plots float over it. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 6% 4%, rgba(139, 92, 246, 0.34), transparent 70%),
+    radial-gradient(800px 520px at 100% 0%, rgba(236, 13, 217, 0.20), transparent 70%),
+    radial-gradient(1000px 640px at 0% 100%, rgba(37, 99, 235, 0.34), transparent 70%),
+    radial-gradient(700px 500px at 100% 100%, rgba(139, 92, 246, 0.22), transparent 70%),
+    linear-gradient(180deg, #060826 0%, #0B0F3B 100%);
 }
 
 :focus-visible {
@@ -202,12 +213,18 @@ button:disabled {
 
 /* ── Cards ──────────────────────────────────────────────────────── */
 
+/* Cards are translucent glass over the aurora; the plots sit in a deeper panel
+ * inside them (see .plot) so there are three clearly separate depths. */
 .card {
-  background: var(--juxta-surface-1);
-  border: 1px solid var(--juxta-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(180deg, rgba(30, 38, 105, 0.50), rgba(17, 23, 70, 0.52));
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top-color: rgba(255, 255, 255, 0.22);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4) var(--space-4);
   margin-bottom: var(--space-3);
+  box-shadow: var(--shadow-standard), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .card h2 {
@@ -250,7 +267,12 @@ button:disabled {
   gap: var(--space-2);
   text-align: center;
   padding: var(--space-6) var(--space-4);
-  background: var(--juxta-surface-1);
+  background:
+    radial-gradient(60% 100% at 0% 120%, rgba(37, 99, 235, 0.30), transparent 72%),
+    radial-gradient(50% 90% at 100% -20%, rgba(236, 13, 217, 0.22), transparent 72%),
+    linear-gradient(180deg, rgba(30, 38, 105, 0.50), rgba(17, 23, 70, 0.52));
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
   border: 1px dashed var(--juxta-border-strong);
   border-radius: var(--radius-lg);
   transition:
@@ -384,9 +406,9 @@ button:disabled {
 }
 
 .metric-card {
-  background: var(--juxta-bg);
+  background: rgba(5, 8, 38, 0.55);
   border: 1px solid var(--juxta-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   min-width: 0;
 }
@@ -491,8 +513,27 @@ button:disabled {
 
 /* ── Plots ──────────────────────────────────────────────────────── */
 
+/* Plot panel: a plain, darker navy inset so plots read as a separate depth from the
+ * glass card. No glows here — the color comes from the page aurora behind the cards.
+ * Plotly draws on a transparent background, so this shows through the axes. */
 .plot {
+  position: relative;
   width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, #060926 0%, #0A0E33 100%);
+  box-shadow: inset 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.plot-note {
+  margin: var(--space-2) 0 0;
+  font-size: 0.78rem;
+  color: var(--juxta-text-faint);
+}
+
+.plot .empty-note {
+  padding: var(--space-3);
 }
 
 .empty-note {
@@ -592,6 +633,22 @@ table.events tbody tr:hover {
     line-height: 1.4;
   }
 
+  /* Screen-only depth effects */
+  body::before {
+    display: none;
+  }
+
+  .plot {
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .plot-note {
+    color: var(--juxta-text-faint);
+  }
+
   /* Hide interactive / upload UI */
   #upload-section,
   .tz-control,
@@ -644,6 +701,8 @@ table.events tbody tr:hover {
     padding: 0;
     margin: 0 0 18pt;
     box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   .card h2 {

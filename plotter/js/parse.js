@@ -116,12 +116,67 @@ function normalizeDayRelative(rows, dateKey, numericCols) {
   return { rows: out, dropped };
 }
 
-// Parses a FileList/array of File objects into merged, sorted datasets.
-// Returns { jxv, jxb, jxs, fileCounts, warnings, error, deviceId }
-async function ingestFiles(files) {
+function isZipFile(file) {
+  return file.name.toLowerCase().endsWith(".zip");
+}
+
+/**
+ * Extract the CSVs from a zip (the iOS app exports DEVICE_ID.zip containing
+ * DEVICE_ID/JX*YYYYMMDD.csv for every selected day). Returns File objects named
+ * by the entry's basename so the normal filename rules apply.
+ */
+async function expandZip(file, warnings) {
+  if (typeof JSZip === "undefined") {
+    warnings.push(`Could not open "${file.name}" — zip library unavailable.`);
+    return [];
+  }
+  let zip;
+  try {
+    zip = await JSZip.loadAsync(file);
+  } catch {
+    warnings.push(`Skipped "${file.name}" — not a valid zip.`);
+    return [];
+  }
+  const entries = [];
+  zip.forEach((path, entry) => {
+    if (!entry.dir) entries.push([path, entry]);
+  });
+  const out = [];
+  for (const [path, entry] of entries) {
+    const base = path.split("/").pop();
+    // Skip macOS metadata and anything that is not a CSV.
+    if (path.startsWith("__MACOSX/") || base.startsWith("._")) continue;
+    if (!base.toLowerCase().endsWith(".csv")) continue;
+    const blob = await entry.async("blob");
+    out.push(new File([blob], base, { type: "text/csv" }));
+  }
+  if (out.length === 0) warnings.push(`"${file.name}" contained no CSV files.`);
+  return out;
+}
+
+// Parses a FileList/array of File objects (CSV and/or zip) into merged,
+// time-sorted datasets across all days.
+// Returns { jxv, jxb, jxs, fileCounts, dayKeys, warnings, error, deviceId }
+async function ingestFiles(inputFiles) {
   const data = { jxv: [], jxb: [], jxs: [] };
   const fileCounts = { jxv: 0, jxb: 0, jxs: 0 };
+  const dayKeys = new Set();
   const warnings = [];
+
+  // Unpack zips first, then collapse repeats of the same JX*YYYYMMDD.csv (e.g. a zip
+  // plus its loose CSVs) so a day is never counted twice. The last copy wins.
+  const expanded = [];
+  for (const file of inputFiles) {
+    if (isZipFile(file)) expanded.push(...(await expandZip(file, warnings)));
+    else expanded.push(file);
+  }
+  const byName = new Map();
+  for (const file of expanded) {
+    const key = file.name.toUpperCase();
+    if (byName.has(key)) warnings.push(`"${file.name}" was provided more than once — using the last copy.`);
+    byName.set(key, file);
+  }
+  const files = [...byName.values()];
 
   for (const file of files) {
     const type = classifyFile(file.name);
@@ -144,6 +199,8 @@ async function ingestFiles(files) {
         continue;
       }
       fileCounts.jxs += 1;
+      const jxsDay = dateKeyFromFilename(file.name);
+      if (jxsDay) dayKeys.add(jxsDay);
       data.jxs.push(...coerced);
       continue;
     }
@@ -169,6 +226,7 @@ async function ingestFiles(files) {
       continue;
     }
     fileCounts[type] += 1;
+    dayKeys.add(dateKey);
     data[type].push(...normalized);
   }
 
@@ -188,5 +246,14 @@ async function ingestFiles(files) {
 
   const deviceId = data.jxs.find((r) => r.device_id)?.device_id || null;
 
-  return { jxv: data.jxv, jxb: data.jxb, jxs: data.jxs, fileCounts, warnings, error, deviceId };
+  return {
+    jxv: data.jxv,
+    jxb: data.jxb,
+    jxs: data.jxs,
+    fileCounts,
+    dayKeys: [...dayKeys].sort(),
+    warnings,
+    error,
+    deviceId,
+  };
 }
