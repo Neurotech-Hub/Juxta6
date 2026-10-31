@@ -3038,12 +3038,12 @@ private struct DevicePackagesView: View {
             if !packages.isEmpty {
                 Group {
                     if selectedPackages.isEmpty {
-                        fullWidthBarButton("Upload All", color: .blue) {
+                        fullWidthBarButton("Share All", color: .blue) {
                             export(packages)
                         }
                     } else if packageFilter == .active {
                         HStack(spacing: 10) {
-                            fullWidthBarButton("Upload", color: .blue) {
+                            fullWidthBarButton("Share", color: .blue) {
                                 export(selectedPackages)
                             }
                             fullWidthBarButton("Archive", color: .orange) {
@@ -3051,7 +3051,7 @@ private struct DevicePackagesView: View {
                             }
                         }
                     } else {
-                        fullWidthBarButton("Upload", color: .blue) {
+                        fullWidthBarButton("Share", color: .blue) {
                             export(selectedPackages)
                         }
                     }

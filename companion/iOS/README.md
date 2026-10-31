@@ -32,7 +32,7 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 1. Device tab → **Scan** → **Connect**.
 2. App reads Node JSON, then writes Gateway `{"timestamp": <UTC epoch>, "sendFilenames": true}` plus optional `latitude` / `longitude`.
 3. Check one or more days → **Transfer Selected**. The button fills left to right as each file finishes.
-4. Browse offline under **Packages**. Each device card shows the last transfer time. Open it for **Upload All**, or check days to replace that with **Upload** and **Archive**. **Reset** clears the checkmarks. Export is one zip that expands to `DEVICE_ID/JX*YYYYMMDD.csv`. **Shelf Mode** / **Clear Memory** as needed.
+4. Browse offline under **Packages**. Each device card shows the last transfer time. Open it for **Share All**, or check days to replace that with **Share** and **Archive**. **Reset** clears the checkmarks. Export is one zip that expands to `DEVICE_ID/JX*YYYYMMDD.csv`. **Shelf Mode** / **Clear Memory** as needed.
 
 ## CSV formats (schema v10)
 
