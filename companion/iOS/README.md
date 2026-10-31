@@ -18,7 +18,8 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 
 ## Features
 
-- **BLE scan & connect** — Hublink service UUID; peripherals advertise as `JX_*` (Mobile) or `JB_*` (Base)
+- **BLE scan & connect** — peripherals advertise as `JX_*` (Mobile) or `JB_*` (Base). The list shows connectable Hublink-service devices
+- **Advertisement RSSI plot** — **Scan** is unfiltered (duplicates on, 120 s, **Stop** ends it early) and plots every `JX_*` / `JB_*` advertisement (connectable or not) and every Hublink advertiser: one column per advertiser name (new ones fill left to right), fixed −100…−30 dBm axis, violet = connectable, blue = non-connectable, each device's newest advertisement = white dot with its own ring collapsing over 10 s. The plot stays after a scan ends ("data stale; scanning is off") until the next scan. Production tags only advertise in a ~1 s burst each adv interval, so expect sparse dots. Foreground only, physical iPhone
 - **Firmware gate** — Node `firmwareVersion` must start with `6.`; otherwise disconnect
 - **Time sync + context** — Gateway write includes UTC `timestamp` and optional lat/lon; clock subtitle shows last fix plus outdoor °C/°F with a weather icon
 - **Live location / ambient** — location refreshes ~every 10 s while the app is open; outdoor °C is fetched once per launch (and hourly if left open) for the clock subtitle only

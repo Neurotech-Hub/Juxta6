@@ -521,6 +521,8 @@ class PackageStore: ObservableObject {
 
 // MARK: - App State
 class AppState: ObservableObject {
+    /// Advertisement RSSI plot data (its own ObservableObject so advertisements don't redraw all of ContentView).
+    let scanPlot = ScanPlotModel()
     @Published var isScanning = false
     @Published var isConnected = false
     @Published var discoveredDevices: [DiscoveredDevice] = []
@@ -915,6 +917,12 @@ class BLEManager: NSObject, ObservableObject {
     /// True once the in-flight file has been saved or skipped, so EOF and a write error cannot both advance it.
     private var currentFileSettled = true
 
+    private static let scanTimeoutSeconds: TimeInterval = 120
+    private var scanTimeoutWork: DispatchWorkItem?
+    /// Duplicate advertisements arrive many times per second; the connectable list only refreshes RSSI this often.
+    private var lastListRSSIUpdate: [UUID: Date] = [:]
+    private var loggedPlotDevices: Set<UUID> = []
+
     init(appState: AppState, packageStore: PackageStore) {
         self.appState = appState
         self.packageStore = packageStore
@@ -929,23 +937,33 @@ class BLEManager: NSObject, ObservableObject {
             return
         }
         
+        scanTimeoutWork?.cancel()
         appState.isScanning = true
         appState.discoveredDevices.removeAll()
+        appState.scanPlot.beginScan()
+        lastListRSSIUpdate.removeAll()
+        loggedPlotDevices.removeAll()
         appState.cancelClearDevices() // Cancel any pending clear timer
-        appState.log("Starting BLE scan for service: \(HublinkUUIDs.service.uuidString)")
+        appState.log("Starting BLE scan (unfiltered; plotting JX_/JB_ names and Hublink service \(HublinkUUIDs.service.uuidString))")
         
+        // Unfiltered: production (logging) advertisements are non-connectable, name-only (JX_/JB_), no service UUID.
+        // Duplicates on so every advertisement is plotted (iOS delivers these in the foreground only).
         centralManager.scanForPeripherals(
-            withServices: [HublinkUUIDs.service],
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            withServices: nil,
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
         
-        // Stop scanning after 10 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-            self.stopScanning()
+        // Stop scanning after 120 seconds (cancelled by a manual stop so it can't end a later scan early)
+        let work = DispatchWorkItem { [weak self] in
+            self?.stopScanning()
         }
+        scanTimeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scanTimeoutSeconds, execute: work)
     }
     
     func stopScanning() {
+        scanTimeoutWork?.cancel()
+        scanTimeoutWork = nil
         centralManager?.stopScan()
         appState.isScanning = false
         appState.log("Scan stopped")
@@ -1362,28 +1380,58 @@ extension BLEManager: CBCentralManagerDelegate {
     
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         let rssiValue = RSSI.intValue
-        
+        // 127 means RSSI is unavailable.
+        guard rssiValue != 127 else { return }
+
+        // The scan is unfiltered and delivers duplicates, so reject anything irrelevant before doing any work.
+        let advertisedServices = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]
+        let isHublinkAdvertiser = advertisedServices?.contains(HublinkUUIDs.service) ?? false
+        // Non-connectable production packets often have no cached `peripheral.name`; use the advertised local name.
+        let advertisedName = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name
+        let isJuxtaName = advertisedName.map { JuxtaPeerID.isDeviceFolderID($0) } ?? false
+        guard isHublinkAdvertiser || isJuxtaName else { return }
+
+        let isConnectable = (advertisementData[CBAdvertisementDataIsConnectable] as? NSNumber)?.boolValue ?? isHublinkAdvertiser
+        let plotName = advertisedName ?? "ID-\(peripheral.identifier.uuidString.prefix(4))"
+        appState.scanPlot.record(deviceID: peripheral.identifier, name: plotName, rssi: rssiValue, isConnectable: isConnectable)
+        if isJuxtaName, loggedPlotDevices.insert(peripheral.identifier).inserted {
+            appState.log("ADVERTISER: \(plotName) \(isConnectable ? "connectable" : "non-connectable") (RSSI: \(rssiValue))")
+        }
+
+        // Connectable list: Hublink advertisers only (same set as the previous service-filtered scan).
+        guard isHublinkAdvertiser else { return }
+
         if let name = peripheral.name {
             if let existingIndex = appState.discoveredDevices.firstIndex(where: { $0.peripheral.identifier == peripheral.identifier }) {
                 // Update existing device with new RSSI
-                appState.discoveredDevices[existingIndex].rssi = rssiValue
+                updateListRSSI(at: existingIndex, id: peripheral.identifier, rssi: rssiValue)
             } else {
                 // Add new device
                 let discoveredDevice = DiscoveredDevice(peripheral: peripheral, rssi: rssiValue)
                 appState.discoveredDevices.append(discoveredDevice)
+                lastListRSSIUpdate[peripheral.identifier] = Date()
                 appState.log("DISCOVERED: \(name) (RSSI: \(rssiValue))")
             }
         } else {
             if let existingIndex = appState.discoveredDevices.firstIndex(where: { $0.peripheral.identifier == peripheral.identifier }) {
                 // Update existing device with new RSSI
-                appState.discoveredDevices[existingIndex].rssi = rssiValue
+                updateListRSSI(at: existingIndex, id: peripheral.identifier, rssi: rssiValue)
             } else {
                 // Add new device
                 let discoveredDevice = DiscoveredDevice(peripheral: peripheral, rssi: rssiValue)
                 appState.discoveredDevices.append(discoveredDevice)
+                lastListRSSIUpdate[peripheral.identifier] = Date()
                 appState.log("DISCOVERED: Unnamed device \(peripheral.identifier.uuidString) (RSSI: \(rssiValue))")
             }
         }
+    }
+
+    /// Duplicate advertisements make this fire many times per second, so limit list refreshes to twice per second.
+    private func updateListRSSI(at index: Int, id: UUID, rssi: Int) {
+        let now = Date()
+        if let last = lastListRSSIUpdate[id], now.timeIntervalSince(last) < 0.5 { return }
+        lastListRSSIUpdate[id] = now
+        appState.discoveredDevices[index].rssi = rssi
     }
     
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -2022,8 +2070,15 @@ struct ContentView: View {
                 connectedView
             } else {
                 headerView
-                deviceListView
-                Spacer(minLength: 0)
+                // The RSSI plot takes the bottom 50% of this area. The list is inset above it so every
+                // connectable device can still be scrolled into view and connected.
+                GeometryReader { geo in
+                    deviceListView
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            ScanRSSIPlotPanel(model: appState.scanPlot, isScanning: appState.isScanning)
+                                .frame(height: geo.size.height * 0.5)
+                        }
+                }
             }
         }
         .background(Color(.systemBackground))
@@ -3004,7 +3059,7 @@ private struct DevicePackagesView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity)
-                .background(.bar)
+                .background(Color(.systemBackground))
             }
         }
         .onChange(of: packages.map(\.dateKey)) { _, keys in
