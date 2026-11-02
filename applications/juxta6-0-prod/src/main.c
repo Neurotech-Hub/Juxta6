@@ -447,7 +447,10 @@ static void enter_shelf(const char *reason)
 					     now);
 	}
 	(void)juxta_checkpoint_disable();
+	/* Mode is SHELF before the hangup so disconnected() does not treat it as a
+	 * sync-phase disconnect and enter production. */
 	atomic_set(&app_mode, JUXTA_OP_MODE_SHELF);
+	juxta_ble_disconnect();
 	LOG_INF("Entering shelf (%s) — white chirp every %u s", reason != NULL ? reason : "",
 		SHELF_CHIRP_INTERVAL_MS / 1000U);
 	leds_off();

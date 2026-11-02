@@ -653,10 +653,9 @@ static int apply_gateway_command(const char *json)
 
 	if (extract_bool_true(json, "reset"))
 	{
-		/* Disconnect BLE and enter shelf mode (periodic white chirp).
-		 * Implemented in main.c. */
+		/* Main sees the flag and enter_shelf() drops the link. */
 		LOG_INF("reset: entering shelf mode on request");
-		juxta_ble_reset_requested(); /* does not return */
+		juxta_ble_reset_requested();
 	}
 
 	if (extract_u32(json, "scanInterval", &value) == 0 && value <= UINT16_MAX)
@@ -993,6 +992,28 @@ void juxta_ble_connection_established(struct bt_conn *conn)
 	if (err != 0)
 	{
 		LOG_WRN("Connection param update request failed: %d", err);
+	}
+}
+
+void juxta_ble_disconnect(void)
+{
+	struct bt_conn *conn;
+	int err;
+
+	conn = current_conn;
+	if (conn == NULL)
+	{
+		return;
+	}
+
+	/* Extra ref: the disconnect callback unrefs current_conn, and
+	 * bt_conn_disconnect can yield before it returns. */
+	bt_conn_ref(conn);
+	err = bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	bt_conn_unref(conn);
+	if (err != 0 && err != -ENOTCONN)
+	{
+		LOG_WRN("bt_conn_disconnect (%d)", err);
 	}
 }
 

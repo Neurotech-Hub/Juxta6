@@ -35,6 +35,8 @@ int juxta_ble_service_init(struct juxta_log_context *log_ctx);
 int juxta_ble_get_device_id(char *device_id);
 void juxta_ble_connection_established(struct bt_conn *conn);
 void juxta_ble_connection_terminated(void);
+/* Drop the active Hublink link. No-op if none. */
+void juxta_ble_disconnect(void);
 int juxta_ble_get_status(uint16_t *mtu, bool *connected, bool *transfer_active);
 
 /* Set a getter that returns current battery voltage in millivolts.
