@@ -1,0 +1,6 @@
+unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude
+1793615410,day_start,JX_5C0848,JX_5C0848,,6.6.0,30,2,60,JX_5C0848,38.625725,-90.555252
+1793615410,shelf_exit,JX_5C0848,JX_5C0848,,6.6.0,30,2,60,JX_5C0848,,
+1793615410,boot,JX_5C0848,JX_5C0848,,6.6.0,30,2,60,JX_5C0848,,
+1793615410,user_connected,JX_5C0848,JX_5C0848,,6.6.0,30,2,60,JX_5C0848,,
+1793615410,time_set,JX_5C0848,JX_5C0848,,6.6.0,30,2,60,JX_5C0848,38.625690,-90.555275

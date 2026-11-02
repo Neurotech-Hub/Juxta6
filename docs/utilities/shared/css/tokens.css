@@ -1,5 +1,5 @@
 /* JUXTA design tokens — source: brand/JUXTA_BRAND.md (§3, §4, §7, §22).
- * Keep brand values here; style.css consumes semantic aliases only. */
+ * Shared by every page under docs/utilities/. Component CSS only consumes these aliases. */
 
 :root {
   /* Core palette */

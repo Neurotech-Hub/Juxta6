@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0B0F3B">
+  <title>pyJuxta — Analyses</title>
+  <link rel="icon" type="image/png" href="../plotter/assets/juxta_symbol.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="../shared/css/tokens.css">
+  <link rel="stylesheet" href="../shared/css/utilities.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <a class="brand" href="../">
+        <img src="../plotter/assets/juxta_symbol.png" alt="" width="36" height="36">
+        <span class="brand-word">JUXTA</span>
+        <span class="brand-product">pyJuxta</span>
+      </a>
+    </header>
+
+    <div class="wiki">
+      <nav class="sidenav" aria-label="pyJuxta guide">
+        <a href="./">Walkthrough</a>
+        <a href="install.html">Install</a>
+        <a href="analyses.html" aria-current="page">Analyses</a>
+      </nav>
+      <article class="prose">
+        <p class="eyebrow">Python library</p>
+        <h1>Analyses</h1>
+        <p>Each analysis is a method on a loaded deployment and returns the numbers, the settings behind them, and a figure. The scope is <code>agents/pyJuxta_Analysis_Specification.md</code> in the repository. Rows marked <em>in the walkthrough</em> run live on the <a href="./">walkthrough</a>, on the example data or your own.</p>
+        <h2>One device</h2>
+        <table>
+          <thead><tr><th>Call</th><th>Question</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><code>availability</code>, <code>battery</code></td><td>How complete is the recording, and what did the clock and battery do?</td><td><a href="./#step-recorded">In the walkthrough</a></td></tr>
+            <tr><td><code>activity</code></td><td>When was the tag moving? A zero is a motion summary, not sleep.</td><td><a href="./#step-activity">In the walkthrough</a></td></tr>
+            <tr><td><code>diel</code>, <code>rhythms</code></td><td>How does activity sit on the 24-hour clock, and is there a stable rhythm?</td><td><a href="./#step-day">In the walkthrough</a></td></tr>
+            <tr><td><code>environment</code></td><td>Temperature, humidity, and light at the sensor, not core body temperature.</td><td><a href="./#step-sensors">In the walkthrough</a></td></tr>
+            <tr><td><code>visits</code></td><td>Which bases detected this tag, and for which stretches?</td><td><a href="./#step-visits">In the walkthrough</a></td></tr>
+          </tbody>
+        </table>
+        <h2>Two devices</h2>
+        <table>
+          <thead><tr><th>Call</th><th>Question</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><code>proximity</code></td><td>How often did they detect each other, and at what RSSI? Not meters.</td><td><a href="./#step-together">In the walkthrough</a></td></tr>
+            <tr><td><code>synchrony</code></td><td>Do their motion series rise and fall together, beyond chance and time of day?</td><td><a href="./#step-synchrony">In the walkthrough</a></td></tr>
+          </tbody>
+        </table>
+        <h2>Deployment</h2>
+        <table>
+          <thead><tr><th>Call</th><th>Question</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><code>proximity_matrix</code></td><td>Who heard whom, and how often?</td><td><a href="./#step-matrix">In the walkthrough</a></td></tr>
+            <tr><td>Association network</td><td>Who was seen with whom, weighted by detections, with coverage shown.</td><td>Planned</td></tr>
+            <tr><td>Group activity</td><td>How did the set of tags move through the day?</td><td>Planned</td></tr>
+          </tbody>
+        </table>
+      </article>
+    </div>
+  </div>
+</body>
+</html>

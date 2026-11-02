@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyjuxta"
+version = "0.1.0"
+description = "Analysis library for Juxta6 daily logs (jxta-nor-csv-v10): activity, base-station visits, proximity, and synchrony."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "LicenseRef-Proprietary" }
+authors = [{ name = "Neurotech Hub" }]
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+# Result.show() renders figures with Plotly; the figure specs themselves need no extra package.
+plot = ["plotly>=5.18"]
+test = ["pytest>=8", "tzdata"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

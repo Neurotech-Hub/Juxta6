@@ -1,11 +1,14 @@
-# Deploy Juxta6 Plotter (plotter/) to GitHub Pages.
-name: Deploy Plotter Pages
+# Deploy docs/ (utilities landing, plotter, pyJuxta walkthrough) to GitHub Pages.
+# The pyJuxta walkthrough runs the library in the browser, so the wheel and data manifest it loads
+# are built here (they are not committed).
+name: Deploy Pages
 
 on:
   push:
     branches: [main]
     paths:
-      - "plotter/**"
+      - "docs/**"
+      - "pyjuxta/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,13 +31,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build pyJuxta site assets
+        run: python pyjuxta/tools/build_site_assets.py
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: plotter
+          path: docs
 
       - name: Deploy to GitHub Pages
         id: deployment

@@ -4,17 +4,17 @@ Client-side plotting for **Juxta6-0** Tag daily CSV exports (`jxta-nor-csv-v10`)
 
 ## Brand / styling
 
-The UI follows [`brand/JUXTA_BRAND.md`](../brand/JUXTA_BRAND.md) and matches the iOS companion: a deep-navy page with a fixed blue / violet / magenta aurora, translucent glass cards, and a plain darker plot panel inside each card (three distinct depths, so plots don't blend into the page). The color glow lives on the page only, not inside the plots.
+The UI follows [`brand/JUXTA_BRAND.md`](../../../brand/JUXTA_BRAND.md) and matches the iOS companion: a deep-navy page with a fixed blue / violet / magenta aurora, translucent glass cards, and a plain darker plot panel inside each card (three distinct depths, so plots don't blend into the page). The color glow lives on the page only, not inside the plots.
 
-- `css/tokens.css` — brand tokens (palette, surfaces, gradient, radii, spacing, type). Edit here first; `style.css` only consumes semantic aliases.
-- `css/style.css` — layout and components (lockup header, drop zone, cards, plot panels, table, print). The solid gradient fill is still used once, on the primary CTA; the page aurora is a soft background glow. All screen-only depth effects are removed in print.
+- `../shared/css/tokens.css` — brand tokens shared with the utilities landing page and the pyJuxta guide. Edit here first; `css/style.css` only consumes semantic aliases.
+- `css/style.css` — plotter layout (lockup header, drop zone, cards, plot panels, table, print). The solid gradient fill is still used once, on the primary CTA; the page aurora is a soft background glow. All screen-only depth effects are removed in print.
 - `js/plots.js` — `BRAND` palette and `PLOT_THEMES` (dark on screen with lighter blue/violet/magenta series tints, light for print). `app.js` swaps themes on `beforeprint` / `afterprint` since Plotly bakes colors into SVG.
-- `assets/juxta_symbol.png` — 256 px copy of the primary symbol (header + favicon). `juxta_tag_mobile.png` / `juxta_tag_base.png` — role artwork above Summary (`JB_*` → base). GitHub Pages deploys only `plotter/`, so assets must live here.
+- `assets/juxta_symbol.png` — 256 px copy of the primary symbol (header + favicon). `juxta_tag_mobile.png` / `juxta_tag_base.png` — role artwork above Summary (`JB_*` → base). GitHub Pages deploys `docs/`, so these assets must live here.
 - Fonts (Space Grotesk, Plus Jakarta Sans) load from Google Fonts with system fallbacks.
 
 **Live (GitHub Pages):** after Pages is enabled on this repo (Actions source), the site is served from this folder:
 
-`https://neurotech-hub.github.io/Juxta6/`
+`https://neurotech-hub.github.io/Juxta6/utilities/plotter/`
 
 ## Supported files (schema v10)
 
@@ -59,20 +59,20 @@ Map tiles load from Esri (dark canvas) when a package has coordinates (approx. l
 ## Running locally
 
 ```bash
-cd plotter
+cd docs
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000 — or open `index.html` directly.
+Then open http://localhost:8000/utilities/plotter/ — or open `index.html` directly.
 
 ## Deploying to GitHub Pages
 
-This monorepo deploys **only** `plotter/` via [`.github/workflows/pages.yml`](../.github/workflows/pages.yml).
+This monorepo deploys **`docs/`** via [`.github/workflows/pages.yml`](../../../.github/workflows/pages.yml). The site root redirects to `utilities/`. The plotter is `utilities/plotter/`.
 
 1. Push to `main`.
 2. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Site root = plotter contents (PapaParse / Plotly from CDN; no build step).
+3. No build step. PapaParse, Plotly, JSZip, and Leaflet load from CDNs. `docs/.nojekyll` keeps GitHub from running Jekyll.
 
 ## License
 
-Proprietary — see the repository [LICENSE](../LICENSE). Reuse requires explicit written permission.
+Proprietary — see the repository [LICENSE](../../../LICENSE). Reuse requires explicit written permission.

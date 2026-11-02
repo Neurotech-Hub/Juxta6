@@ -1,0 +1,2 @@
+unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude
+1793404805,day_start,JX_5C0848,JX_5C0848,,6.6.0,30,2,60,JX_5C0848,38.625725,-90.555252

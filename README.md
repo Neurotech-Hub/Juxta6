@@ -9,7 +9,7 @@ logs (`jxta-nor-csv-v10`).
 | Firmware | [`applications/juxta6-0-prod`](applications/juxta6-0-prod) — shelf / Hublink sync / NOR CSV / vitals |
 | HIL | Isolated Tag apps under [`applications/`](applications/) for LED, sensors, flash, BLE, CS |
 | Companion | [`companion/iOS`](companion/iOS) — **Juxta6** Xcode app (connect, settings, file transfer) |
-| Plotter | [`plotter/`](plotter/) — **Juxta6 Plotter** ([live](https://neurotech-hub.github.io/Juxta6/)) |
+| Utilities | [`docs/utilities/`](docs/utilities/) — Plotter and pyJuxta ([live](https://neurotech-hub.github.io/Juxta6/utilities/)) |
 | Libs | [`lib/`](lib/) — ID, motion (ADXL367), VDD, Channel Sounding isolation |
 | Spec | [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md) |
 
@@ -57,12 +57,11 @@ logs (`jxta-nor-csv-v10`).
 │   ├── juxta_motion/              # ADXL367 XYZ + DIE_TEMP poll
 │   ├── juxta_vdd/                 # SAADC VDD mV helper
 │   └── juxta_range/               # CS/RAS isolation layer
-├── docs/
-│   ├── HIL_VALIDATION.md
-│   └── ...
+├── hardware/nrf54l15-tag/         # PCA20072 reference, user guide, production files
+├── docs/                          # GitHub Pages: utilities landing, plotter, pyJuxta walkthrough
+├── pyjuxta/                       # Python analysis library (pyJuxta)
 ├── companion/
 │   └── iOS/                       # Juxta6 Xcode companion (Hublink + schema v10)
-├── plotter/                       # Juxta6 Plotter (static; GitHub Pages)
 ├── reference/juxta5-8/            # Frozen — do not west-build
 └── applications/
     ├── tag-blink/ … tag-ble-adv/  # HIL-01..07 hardware fixtures
@@ -89,7 +88,7 @@ west build -b nrf54l15tag/nrf54l15/cpuapp --snippet rtt-console applications/tag
 west flash
 ```
 
-Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
+Validation log: [applications/HIL_VALIDATION.md](applications/HIL_VALIDATION.md).
 
 ## HIL app series
 
@@ -125,7 +124,8 @@ Validation log: [docs/HIL_VALIDATION.md](docs/HIL_VALIDATION.md).
 | --- | --- |
 | `juxta6-0-prod` | Shelf / magnet / Hublink sync / dual-ant max-RSSI / live vitals / **MX25L3233 NOR CSV** + Filename/File Transfer; RTT mirrors. See [applications/juxta6-0-prod/README.md](applications/juxta6-0-prod/README.md). |
 | Companion | [companion/iOS](companion/iOS) — **Juxta6** Xcode app (firmware 6.x / `jxta-nor-csv-v10`). Open `Juxta6.xcodeproj` (not west). |
-| Plotter | [plotter/](plotter/) — **Juxta6 Plotter** ([https://neurotech-hub.github.io/Juxta6/](https://neurotech-hub.github.io/Juxta6/)). |
+| Plotter | [docs/utilities/plotter/](docs/utilities/plotter/) — **Juxta6 Plotter** ([live](https://neurotech-hub.github.io/Juxta6/utilities/plotter/)). |
+| pyJuxta | [pyjuxta/](pyjuxta/) — analysis library. Interactive walkthrough (runs in the browser): [docs/utilities/pyjuxta/](docs/utilities/pyjuxta/). |
 
 ## Later milestones
 
@@ -143,9 +143,9 @@ No Channel Sounding in prod, Encounter Manager, LED2/BTN2, FUEL ADC, or DK CS an
 
 - [Nordic nRF54L15 Tag intro](https://docs.nordicsemi.com/r/bundle/ug_nrf54l15_tag/page/ug/nrf54l15_tag/intro.html)
 - [Zephyr board: nRF54L15 TAG](https://docs.zephyrproject.org/latest/boards/nordic/nrf54l15tag/doc/index.html)
-- [docs/nRF54L15_Tag_Hardware_Reference.md](docs/nRF54L15_Tag_Hardware_Reference.md)
+- [hardware/nrf54l15-tag/nRF54L15_Tag_Hardware_Reference.md](hardware/nrf54l15-tag/nRF54L15_Tag_Hardware_Reference.md)
 - [agents/JUXTA-SPEC.md](agents/JUXTA-SPEC.md)
 - [lib/juxta_range/README.md](lib/juxta_range/README.md)
-- [plotter/](plotter/) — Juxta6 Plotter ([GitHub Pages](https://neurotech-hub.github.io/Juxta6/))
+- [docs/utilities/](docs/utilities/) — Plotter and pyJuxta ([GitHub Pages](https://neurotech-hub.github.io/Juxta6/utilities/))
 - [LICENSE](LICENSE) — proprietary; permission required for reuse
 - [reference/juxta5-8/REFERENCE.md](reference/juxta5-8/REFERENCE.md)

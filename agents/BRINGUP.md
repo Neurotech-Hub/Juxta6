@@ -3,14 +3,14 @@
 User-owned hardware and nRF Connect steps. Agents do not build, flash, or debug — see [RULES.md](RULES.md).
 
 Architecture: [JUXTA-SPEC.md](JUXTA-SPEC.md).  
-Validation log: [docs/HIL_VALIDATION.md](../docs/HIL_VALIDATION.md).
+Validation log: [applications/HIL_VALIDATION.md](../applications/HIL_VALIDATION.md).
 
 ## Checklist
 
 1. **Power the Tag** with exactly one source: CR2032 **or** 3.3 V on DK `VDD SWD0` — **never both**.
 2. Insert the Tag into the nRF54L DK **DEBUG OUT** header (DEBUG OUT does not power the Tag).
 3. In **nRF Connect**, build/flash with board `nrf54l15tag/nrf54l15/cpuapp` and **RTT Console** (`rtt-console`).
-4. Run HIL apps in order; record results in `docs/HIL_VALIDATION.md`.
+4. Run HIL apps in order; record results in `applications/HIL_VALIDATION.md`.
 5. **Channel Sounding** needs **NCS ≥ 3.3.1**. Never apply nRF54L15 DK CS antenna overlays on Tag (those pins are TWI).
 6. **Later:** `juxta6-0-prod` M2 (Hublink + NOR CSV), then MCUboot/CS milestones; Encounter Manager.
 

@@ -106,7 +106,7 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 
 ## References
 
-- [nRF54L15_Tag_Hardware_Reference.md](nRF54L15_Tag_Hardware_Reference.md)
+- [nRF54L15_Tag_Hardware_Reference.md](../hardware/nrf54l15-tag/nRF54L15_Tag_Hardware_Reference.md)
 - [agents/JUXTA-SPEC.md](../agents/JUXTA-SPEC.md)
 - [agents/BRINGUP.md](../agents/BRINGUP.md)
 - [reference/juxta5-8/REFERENCE.md](../reference/juxta5-8/REFERENCE.md)

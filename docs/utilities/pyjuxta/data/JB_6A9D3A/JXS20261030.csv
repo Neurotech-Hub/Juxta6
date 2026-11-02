@@ -1,0 +1,3 @@
+unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude
+1793395090,day_start,JB_6A9D3A,JB_6A9D3A,,6.6.0,30,2,60,JB_6A9D3A,38.625725,-90.555252
+1793395090,user_disconnected,JB_6A9D3A,JB_6A9D3A,,6.6.0,30,2,60,JB_6A9D3A,,

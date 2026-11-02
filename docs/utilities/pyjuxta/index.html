@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0B0F3B">
+  <title>pyJuxta — Walkthrough</title>
+  <link rel="icon" type="image/png" href="../plotter/assets/juxta_symbol.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="../shared/css/tokens.css">
+  <link rel="stylesheet" href="../shared/css/utilities.css">
+  <link rel="stylesheet" href="css/walkthrough.css">
+  <script src="https://cdn.plot.ly/plotly-cartesian-2.35.2.min.js" charset="utf-8"></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
+</head>
+<body class="walk">
+  <div class="wrap wide">
+    <header class="topbar">
+      <a class="brand" href="../">
+        <img src="../plotter/assets/juxta_symbol.png" alt="" width="36" height="36">
+        <span class="brand-word">JUXTA</span>
+        <span class="brand-product">pyJuxta</span>
+      </a>
+      <span id="py-status" class="py-status" data-state="busy" role="status" aria-live="polite">Starting Python…</span>
+    </header>
+
+    <div class="wiki walk-grid">
+      <nav class="sidenav sticky" aria-label="pyJuxta guide">
+        <div class="sidenav-group" id="sidenav-data">
+          <a href="#data">Your data</a>
+        </div>
+        <p class="sidenav-label">Walkthrough</p>
+        <ol class="sidenav-steps" id="sidenav-steps"></ol>
+        <p class="sidenav-label">Guide</p>
+        <a href="install.html">Install</a>
+        <a href="analyses.html">Analyses</a>
+      </nav>
+
+      <main class="walk-main">
+        <section class="intro">
+          <p class="eyebrow">Python library</p>
+          <h1>Walk through a deployment</h1>
+          <p class="lede">pyJuxta runs in this page. Every figure and number below is computed by the library from the data you load: nothing is precomputed or typed in. Start with the example, then drop in your own files and the same steps run on them.</p>
+          <p class="lede">Each step asks one question, gives you the settings that change the answer, and shows the Python that produced it. Settings are choices, not facts. Move them and watch which conclusions hold.</p>
+        </section>
+
+        <section class="card data-card" id="data">
+          <header class="step-head"><span class="step-n">0</span><h2>Load a deployment</h2></header>
+          <p class="question">The example is six tags kept in a home for about two days: one in a person's pocket, one on a dog's leash, and four fixed in rooms. Use it as the story, or load your own: nothing leaves your computer.</p>
+          <div class="load-row">
+            <button class="btn primary" id="btn-example" type="button" disabled>Use the example data</button>
+            <div class="drop" id="drop" tabindex="0">
+              <span>Drop a folder, zips, or CSVs here, or</span>
+              <button class="btn" id="btn-folder" type="button">Choose a folder</button>
+              <button class="btn" id="btn-files" type="button">Choose files</button>
+            </div>
+          </div>
+          <input type="file" id="file-folder" webkitdirectory multiple hidden>
+          <input type="file" id="file-files" accept=".csv,.zip" multiple hidden>
+          <p class="hint">Accepts what the iOS app shares: <code>DEVICE_ID.zip</code> files, or the unzipped <code>DEVICE_ID/JX{V,B,S}YYYYMMDD.csv</code> folders. Put every tag from one deployment together.</p>
+          <p id="load-msg" class="load-msg" hidden></p>
+
+          <div id="loaded" hidden>
+            <p id="load-summary" class="load-summary"></p>
+            <ul id="load-warnings" class="warnings" hidden></ul>
+            <div class="tbl-wrap">
+              <table class="data-table devices">
+                <thead><tr><th>Device</th><th>Name</th><th>Role</th><th>Vitals rows</th><th>Peer rows</th></tr></thead>
+                <tbody id="dev-body"></tbody>
+              </table>
+            </div>
+            <p class="hint">Names and roles are yours to set. A tag whose id says base but was worn (or the reverse) can be switched, and every step below follows.</p>
+            <div class="ctl tz">
+              <label for="tz"><span>Time zone for local-clock steps</span></label>
+              <select id="tz"></select>
+              <small>Stored times are UTC. Time of day, local days, and rhythms use this zone.</small>
+            </div>
+            <details class="code" open>
+              <summary>Python to load these files</summary>
+              <div class="code-body"><pre><code id="setup-code"></code></pre><button class="btn small copy" id="btn-copy-setup" type="button">Copy</button></div>
+            </details>
+          </div>
+        </section>
+
+        <div id="steps"></div>
+
+        <section class="card finish">
+          <h2>Take it with you</h2>
+          <p>The steps above are ordinary pyJuxta calls. Copy them as one script, with the settings you chose, and run it on your machine (<a href="install.html">Install</a>).</p>
+          <button class="btn primary" id="btn-copy-all" type="button">Copy the whole walkthrough as a script</button>
+        </section>
+
+        <p class="site-footer"><a href="../">Utilities</a> · <a href="analyses.html">Analyses</a> · Data from <code>juxta6-0-prod</code>, schema <code>jxta-nor-csv-v10</code>.</p>
+      </main>
+    </div>
+  </div>
+
+  <script src="js/runtime.js"></script>
+  <script src="js/sections.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

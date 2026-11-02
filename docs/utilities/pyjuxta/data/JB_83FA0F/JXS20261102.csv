@@ -1,0 +1,6 @@
+unix,event,device_id,subject_id,experiment,fw_version,scan_interval_s,adv_interval_s,vitals_interval_s,ble_name,latitude,longitude
+1793615992,day_start,JB_83FA0F,JB_83FA0F,,6.6.0,30,2,60,JB_83FA0F,38.625683,-90.555344
+1793615992,shelf_exit,JB_83FA0F,JB_83FA0F,,6.6.0,30,2,60,JB_83FA0F,,
+1793615992,boot,JB_83FA0F,JB_83FA0F,,6.6.0,30,2,60,JB_83FA0F,,
+1793615992,user_connected,JB_83FA0F,JB_83FA0F,,6.6.0,30,2,60,JB_83FA0F,,
+1793615992,time_set,JB_83FA0F,JB_83FA0F,,6.6.0,30,2,60,JB_83FA0F,38.625721,-90.555252

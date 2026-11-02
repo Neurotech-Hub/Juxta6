@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0B0F3B">
+  <title>pyJuxta — Install</title>
+  <link rel="icon" type="image/png" href="../plotter/assets/juxta_symbol.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="../shared/css/tokens.css">
+  <link rel="stylesheet" href="../shared/css/utilities.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <a class="brand" href="../">
+        <img src="../plotter/assets/juxta_symbol.png" alt="" width="36" height="36">
+        <span class="brand-word">JUXTA</span>
+        <span class="brand-product">pyJuxta</span>
+      </a>
+    </header>
+
+    <div class="wiki">
+      <nav class="sidenav" aria-label="pyJuxta guide">
+        <a href="./">Walkthrough</a>
+        <a href="install.html" aria-current="page">Install</a>
+        <a href="analyses.html">Analyses</a>
+      </nav>
+      <article class="prose">
+        <p class="eyebrow">Python library</p>
+        <h1>Install</h1>
+        <p>You need Python 3.11 or newer. The package lives in this monorepo and is not on PyPI yet, so install it from git:</p>
+<pre><code>python3 -m venv .venv
+source .venv/bin/activate
+pip install "git+https://github.com/Neurotech-Hub/Juxta6.git#subdirectory=pyjuxta"</code></pre>
+        <p>From a clone of the repo, the same package is installed with <code>pip install -e pyjuxta</code>. Notebooks and example data stay outside the package, in a folder you choose, so updating the library does not touch your logs.</p>
+        <p>In Jupyter or Google Colab, the first cell can be:</p>
+<pre><code>%pip install "git+https://github.com/Neurotech-Hub/Juxta6.git#subdirectory=pyjuxta"</code></pre>
+        <p>The import name is <code>pyjuxta</code>. Plotting is optional: <code>pip install "pyjuxta[plot]"</code> adds Plotly so <code>result.show()</code> draws the same figures as the <a href="./">walkthrough</a>.</p>
+        <h2>First look</h2>
+        <p>Point <code>load_deployment</code> at a folder of device folders or zips (the iOS app's share), name the tags, and ask a question:</p>
+<pre><code>import pyjuxta as jx
+
+dep = jx.load_deployment("my_deployment/", timezone="America/Chicago")
+dep.set_labels({"JX_54F7A1": "Human", "JX_5C0848": "Dog"})
+dep.check()                              # data-quality findings, in plain language
+
+res = dep.proximity("Human", "Dog")
+res.summary                              # headline numbers
+res.tables                               # extra tables
+res.show()                               # the figure (needs the plot extra)</code></pre>
+        <p>Every analysis returns the same kind of object: the numbers, the settings that shaped them, how much of the deployment they rest on, and the caveats that belong next to them. The walkthrough's <em>Copy the whole walkthrough as a script</em> button gives you the calls for your own data, with your chosen settings.</p>
+      </article>
+    </div>
+  </div>
+</body>
+</html>
