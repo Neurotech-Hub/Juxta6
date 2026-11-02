@@ -26,9 +26,11 @@ dep.check()                                    # data-quality findings
 dep.availability()                             # when was each tag recording
 dep.activity(["Human", "Dog"], bin_s=900)      # motion on a fixed UTC grid
 dep.diel("Human"); dep.rhythms("Human")        # day profile; IS/IV/L5/M10/RA behind a quality gate
+dep.rhythms("Human", inpaint=0)                # no gap filling; inpaint=120 fills gaps up to 2 h, float("inf") any
 dep.environment("temp_c")
 dep.visits("Dog", min_rssi=-80)                # base-station visits and strongest base per window
-dep.proximity_matrix()
+dep.proximity_matrix()                          # who heard whom, every pair
+dep.proximity_network("Dog")                    # the same numbers for one tag: it at the centre, signal as distance
 dep.proximity("Human", "Dog")                  # encounters and reciprocity
 dep.synchrony("Human", "Dog")                  # correlation vs shifted copies, time of day removed, together vs apart
 
@@ -43,6 +45,7 @@ res.show()                                     # needs the plot extra
 ## Principles
 
 - A missing row is missing information, not zero. Bins with too little coverage are `NaN`; smoothing never fills them.
+- Filling is opt-in per analysis and never silent. `inpaint=<minutes>` bridges a gap *inside* a recording (`0` none, `inf` any length) with a straight line; it never extends the start or end, the filled bins are flagged, and the result's notes say how much was filled. `diel` and `rhythms` default to `inpaint=180` so a pause for a phone download does not disqualify a day; `activity` and `synchrony` default to `0`.
 - A detection is not a distance. RSSI summaries say so next to the numbers.
 - Rhythm metrics (IS, IV, L5, M10, RA) are computed only when the data has enough complete local days; otherwise the result says why not.
 - Null comparisons (shifted copies, matched hours) are seeded and report how few shifts the data allowed.

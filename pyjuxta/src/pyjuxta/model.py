@@ -363,6 +363,10 @@ class Deployment:
         from .proximity import proximity_matrix
         return proximity_matrix(self, **kw)
 
+    def proximity_network(self, center, **kw):
+        from .proximity import proximity_network
+        return proximity_network(self, center, **kw)
+
     def synchrony(self, a, b, **kw):
         from .synchrony import synchrony
         return synchrony(self, a, b, **kw)

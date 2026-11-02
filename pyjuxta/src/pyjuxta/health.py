@@ -115,8 +115,10 @@ def battery(dep, *, bin_s: int = 900, max_gap_s: float | None = None) -> Result:
         g = v.groupby(b).batt_v.mean().rename("batt_v").reset_index().rename(columns={"unix": "bin_unix"})
         g.insert(0, "device", dev_id)
         parts.append(g)
+        low_row = v.loc[v.batt_v.idxmin()] if v.batt_v.notna().any() else None
         per.append({"device": dev_id, "label": dep.label(dev_id), "start_v": float(v.batt_v.iloc[0]),
                     "end_v": float(v.batt_v.iloc[-1]), "min_v": float(v.batt_v.min()),
+                    "min_unix": int(low_row.unix) if low_row is not None else None,
                     "max_v": float(v.batt_v.max()),
                     "headroom_to_cutoff_v": round(float(v.batt_v.min()) - BATT_CUTOFF_V, 2)})
     data = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["device", "bin_unix", "batt_v"])
@@ -125,9 +127,12 @@ def battery(dep, *, bin_s: int = 900, max_gap_s: float | None = None) -> Result:
     if len(by_dev):
         low = by_dev.sort_values("min_v").iloc[0]
         summary = {"lowest_device": low.device, "lowest_v": float(low.min_v),
+                   "lowest_unix": None if pd.isna(low.min_unix) else int(low.min_unix),
                    "headroom_to_cutoff_v": float(low.headroom_to_cutoff_v)}
     notes = ["Voltage under load is not state of charge. A cold or busy coin cell reads lower than a rested one.",
-             f"The firmware refuses to run below {BATT_CUTOFF_V:.1f} V."]
+             f"The firmware refuses to run below {BATT_CUTOFF_V:.1f} V.",
+             f"Each line is the average of every {bin_s // 60} min bin, so one brief low reading can sit below it. "
+             "The ring marks the single lowest reading."]
     ctx = _ctx(dep)
     ctx["gap"] = max(bin_s * 3, 1800) if max_gap_s is None else max_gap_s
     return Result("battery", data, {"bin_s": bin_s}, {"n_devices": len(by_dev)}, summary,
@@ -145,13 +150,22 @@ def _fig_battery(r: Result, theme: str) -> dict:
         traces.append({"type": "scatter", "mode": "lines", "x": x, "y": y, "name": ctx["labels"][dev],
                        "line": {"width": 2, "color": ctx["colors"][dev]}, "connectgaps": False,
                        "hovertemplate": "%{y:.2f} V<br>%{x}<extra>" + ctx["labels"][dev] + "</extra>"})
-    lo = float(r.data.batt_v.min())
+    # Lines are bin averages; the lowest single reading can sit below them, so mark it where it happened.
+    lo_v, lo_unix = r.summary.get("lowest_v"), r.summary.get("lowest_unix")
+    lo = float(r.data.batt_v.min()) if lo_v is None else min(float(r.data.batt_v.min()), float(lo_v))
+    if lo_v is not None and lo_unix is not None:
+        who = ctx["labels"][r.summary["lowest_device"]]
+        traces.append({"type": "scatter", "mode": "markers+text", "x": local_strings([lo_unix], ctx["tz"]), "y": [lo_v],
+                       "name": "Lowest reading", "text": [f"{lo_v:.2f} V"], "textposition": "top center",
+                       "textfont": {"size": 11, "color": t["text"]}, "cliponaxis": False,
+                       "marker": {"symbol": "circle-open", "size": 13, "color": t["line"], "line": {"width": 2}},
+                       "hovertemplate": f"lowest reading: %{{y:.2f}} V<br>%{{x}}<extra>{who}</extra>"})
     shapes, ann = [], []
     ymin = min(lo - 0.05, BATT_CUTOFF_V - 0.02)
     shapes.append({"type": "line", "xref": "paper", "x0": 0, "x1": 1, "yref": "y", "y0": BATT_CUTOFF_V,
                    "y1": BATT_CUTOFF_V, "line": {"color": t["muted"], "width": 1, "dash": "dot"}})
-    ann.append({"xref": "paper", "x": 1, "yref": "y", "y": BATT_CUTOFF_V, "text": "firmware cutoff 2.5 V",
-                "showarrow": False, "xanchor": "right", "yanchor": "bottom", "font": {"size": 11, "color": t["muted"]}})
+    ann.append({"xref": "paper", "x": 0, "yref": "y", "y": BATT_CUTOFF_V, "text": "firmware cutoff 2.5 V",
+                "showarrow": False, "xanchor": "left", "yanchor": "bottom", "font": {"size": 11, "color": t["muted"]}})
     return {"data": traces, "layout": F.layout(
         theme, height=340, shapes=shapes, annotations=ann,
         xaxis=F.date_axis(theme, title={"text": f"Local time ({ctx['tz']})"}),

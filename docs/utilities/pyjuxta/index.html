@@ -47,19 +47,25 @@
         </section>
 
         <section class="card data-card" id="data">
-          <header class="step-head"><span class="step-n">0</span><h2>Load a deployment</h2></header>
+          <header class="step-head"><span class="step-n">0</span><span class="step-title"><h2>Load a deployment</h2><button class="anchor-link" type="button" data-anchor="data" aria-label="Copy link to this section" title="Copy link"></button></span><span class="data-badge" id="data-badge" data-state="busy" role="status" aria-live="polite">Loading data…</span></header>
           <p class="question">The example is six tags kept in a home for about two days: one in a person's pocket, one on a dog's leash, and four fixed in rooms. Use it as the story, or load your own: nothing leaves your computer.</p>
-          <div class="load-row">
-            <button class="btn primary" id="btn-example" type="button" disabled>Use the example data</button>
-            <div class="drop" id="drop" tabindex="0">
-              <span>Drop a folder, zips, or CSVs here, or</span>
-              <button class="btn" id="btn-folder" type="button">Choose a folder</button>
-              <button class="btn" id="btn-files" type="button">Choose files</button>
-            </div>
+          <div class="data-status">
+            <button class="btn primary" id="btn-download" type="button" hidden disabled>Download the experiment</button>
+            <button class="link-muted" id="btn-own" type="button" aria-expanded="false" aria-controls="own-data">Use your own data</button>
+            <button class="link-muted" id="btn-example-again" type="button" hidden>Use the example data</button>
           </div>
-          <input type="file" id="file-folder" webkitdirectory multiple hidden>
-          <input type="file" id="file-files" accept=".csv,.zip" multiple hidden>
-          <p class="hint">Accepts what the iOS app shares: <code>DEVICE_ID.zip</code> files, or the unzipped <code>DEVICE_ID/JX{V,B,S}YYYYMMDD.csv</code> folders. Put every tag from one deployment together.</p>
+          <div id="own-data" hidden>
+            <div class="load-row">
+              <div class="drop" id="drop" tabindex="0">
+                <span>Drop a folder, zips, or CSVs here, or</span>
+                <button class="btn" id="btn-folder" type="button">Choose a folder</button>
+                <button class="btn" id="btn-files" type="button">Choose files</button>
+              </div>
+            </div>
+            <input type="file" id="file-folder" webkitdirectory multiple hidden>
+            <input type="file" id="file-files" accept=".csv,.zip" multiple hidden>
+            <p class="hint">Accepts what the iOS app shares: <code>DEVICE_ID.zip</code> files, or the unzipped <code>DEVICE_ID/JX{V,B,S}YYYYMMDD.csv</code> folders. Put every tag from one deployment together.</p>
+          </div>
           <p id="load-msg" class="load-msg" hidden></p>
 
           <div id="loaded" hidden>
@@ -86,8 +92,8 @@
 
         <div id="steps"></div>
 
-        <section class="card finish">
-          <h2>Take it with you</h2>
+        <section class="card finish" id="script">
+          <header class="step-head"><span class="step-title"><h2>Take it with you</h2><button class="anchor-link" type="button" data-anchor="script" aria-label="Copy link to this section" title="Copy link"></button></span></header>
           <p>The steps above are ordinary pyJuxta calls. Copy them as one script, with the settings you chose, and run it on your machine (<a href="install.html">Install</a>).</p>
           <button class="btn primary" id="btn-copy-all" type="button">Copy the whole walkthrough as a script</button>
         </section>

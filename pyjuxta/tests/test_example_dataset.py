@@ -46,7 +46,29 @@ def test_rhythms_gate_on_the_example(dep):
 def test_every_figure_builds(dep):
     for res in (dep.availability(), dep.battery(), dep.activity(), dep.diel("Human"), dep.rhythms("Dog"),
                 dep.environment("temp_c"), dep.visits("Human"), dep.proximity("Human", "Dog"),
-                dep.proximity_matrix(), dep.synchrony("Human", "Dog", n_null=100)):
+                dep.proximity_matrix(), dep.proximity_network("Dog"), dep.synchrony("Human", "Dog", n_null=100)):
         for theme in ("dark", "light"):
             fig = res.figure(theme)
             assert "data" in fig and "layout" in fig
+
+
+def test_default_inpaint_closes_the_humans_download_gap(dep):
+    # 31 Oct has a ~3 h pause in the Human's log. Without painting it is 21 of 24 hours; with the default it is whole.
+    plain = dep.rhythms("Human", min_days=1, inpaint=0)
+    painted = dep.rhythms("Human", min_days=1)
+    assert plain.summary["complete_days"] == 0 and painted.summary["complete_days"] == 1
+    assert painted.summary["filled_hours"] > 0
+    # the start and end of the recording are never extended, so only one local day can be complete
+    assert not dep.rhythms("Human").summary["available"]
+
+
+def test_battery_lowest_reading_is_on_the_figure(dep):
+    b = dep.battery()
+    assert b.summary["lowest_v"] == 2.54
+    assert any(t["name"] == "Lowest reading" for t in b.figure("dark")["data"])
+
+
+def test_dog_kitchen_is_the_best_link_in_both_views(dep):
+    m, n = dep.proximity_matrix(min_rssi=-90).summary, dep.proximity_network("Dog", min_rssi=-90).summary
+    assert m["best_pair"] == n["best_pair"] == "Dog hears Kitchen"
+    assert m["best_value"] == n["best_value"]

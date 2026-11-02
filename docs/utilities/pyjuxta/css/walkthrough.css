@@ -32,6 +32,8 @@
   .walk-grid { grid-template-columns: 210px minmax(0, 1fr); }
 }
 .walk-main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+/* The step cards sit inside #steps, so they need their own gap (the one above only reaches #steps itself). */
+#steps { display: flex; flex-direction: column; gap: var(--space-4); }
 
 .sidenav.sticky { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow: auto; }
 @media (max-width: 859px) { .sidenav.sticky { position: static; max-height: none; } }
@@ -70,8 +72,28 @@
 .card[hidden] { display: none; }
 .step { scroll-margin-top: 16px; }
 
-.step-head { display: flex; align-items: center; gap: 12px; margin-bottom: var(--space-2); }
+.step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: var(--space-2); }
+.step-title { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
 .step-head h2 { font-family: var(--font-display); font-size: 1.4rem; margin: 0; }
+.anchor-link {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: rgba(255, 255, 255, 0.38);
+  cursor: pointer;
+}
+.anchor-link:hover, .anchor-link:focus-visible { color: rgba(255, 255, 255, 0.92); background: rgba(255, 255, 255, 0.06); }
+.anchor-link svg { width: 15px; height: 15px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.anchor-link .check { display: none; }
+.anchor-link.copied { color: #34D399; }
+.anchor-link.copied .link { display: none; }
+.anchor-link.copied .check { display: block; }
 .step-n {
   flex: none;
   display: grid;
@@ -114,11 +136,41 @@
 }
 .btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); border-color: rgba(167, 139, 250, 0.7); }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.btn.primary { border-color: transparent; background: var(--juxta-gradient); }
-.btn.primary:hover:not(:disabled) { background: var(--juxta-gradient); filter: brightness(1.12); }
+/* The gradient is painted from the border box: from the padding box it tiles under the transparent border
+   and shows the opposite colour as a sliver at each end. */
+.btn.primary { border-color: transparent; background: var(--juxta-gradient); background-origin: border-box; background-clip: border-box; }
+.btn.primary:hover:not(:disabled) { background: var(--juxta-gradient); background-origin: border-box; background-clip: border-box; filter: brightness(1.12); }
 .btn.small { padding: 4px 12px; font-size: 0.8rem; }
 
 /* Loading */
+.data-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.data-badge { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; color: var(--juxta-text); }
+.step-head .data-badge { margin-left: auto; }
+.data-badge::before {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--juxta-text-faint);
+}
+.data-badge[data-state="busy"]::before { background: var(--juxta-violet); animation: pulse 1.2s ease-in-out infinite; }
+.data-badge[data-state="ready"]::before { background: #34D399; }
+.link-muted {
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--juxta-text-faint);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.link-muted:hover:not(:disabled) { color: var(--juxta-text-muted); }
+.link-muted:disabled { cursor: default; opacity: 0.6; }
+.link-muted[hidden], .btn[hidden] { display: none; }
+#own-data { margin-top: var(--space-3); }
 .load-row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
 .drop {
   flex: 1 1 340px;
@@ -157,6 +209,7 @@
 }
 .ctl { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ctl.wide { grid-column: 1 / -1; }
+.ctl[hidden] { display: none; }
 .ctl label:not(.chip) {
   display: flex;
   justify-content: space-between;
@@ -281,10 +334,10 @@ details.code { margin-top: var(--space-3); }
 }
 .code-body .copy { position: absolute; top: 8px; right: 8px; }
 
-.finish h2 { font-family: var(--font-display); margin: 0 0 var(--space-2); }
+.finish h2 { font-family: var(--font-display); margin: 0; }
 .finish p { color: var(--juxta-text-muted); max-width: 46rem; }
 
 @media (prefers-reduced-motion: reduce) {
-  .py-status::before { animation: none; }
+  .py-status::before, .data-badge::before { animation: none; }
   .plot { transition: none; }
 }

@@ -17,7 +17,7 @@ const PyRuntime = (() => {
     await pyodide.loadPackage(["numpy", "pandas", "tzdata"]);
     onStatus("Installing pyJuxta…");
     manifest = await (await fetch("assets/manifest.json", { cache: "no-cache" })).json();
-    const wheel = await (await fetch("assets/" + manifest.wheel)).arrayBuffer();
+    const wheel = await (await fetch("assets/" + manifest.wheel, { cache: "no-cache" })).arrayBuffer();
     pyodide.unpackArchive(wheel, "wheel");
     pyodide.runPython("import json, shutil, os\nimport pyjuxta as jx");
     return { version: pyodide.runPython("jx.__version__"), manifest };
@@ -97,6 +97,28 @@ const PyRuntime = (() => {
     return files.length;
   }
 
+  /** The files currently on Pyodide's disk as one zip (what the iOS app shares, in one archive). Returns a Uint8Array. */
+  function zipData(rootName) {
+    return enqueue(async () => {
+      const proxy = pyodide.runPython(`
+import io, os, re, zipfile
+_buf = io.BytesIO()
+with zipfile.ZipFile(_buf, "w", zipfile.ZIP_DEFLATED) as _zf:
+    for _root, _dirs, _names in sorted(os.walk("${DATA_DIR}")):
+        for _n in sorted(_names):
+            _p = os.path.join(_root, _n)
+            _rel = re.sub(r"^(J[XB]_[0-9A-Fa-f]{6})[^/]*/", r"\\1/", os.path.relpath(_p, "${DATA_DIR}"))
+            _zf.write(_p, "${rootName}/" + _rel)
+_buf.getvalue()
+`);
+      try {
+        return proxy.toJs();
+      } finally {
+        proxy.destroy();
+      }
+    });
+  }
+
   /** `items`: [{ file: File, path: "DEVICE/JXV2026….csv" }] from a picker or a drop. */
   async function loadUserFiles(items, onProgress) {
     resetData();
@@ -108,5 +130,5 @@ const PyRuntime = (() => {
     return items.length;
   }
 
-  return { start, run, evalJSON, loadExampleFiles, loadUserFiles, DATA_DIR, get manifest() { return manifest; } };
+  return { start, run, evalJSON, loadExampleFiles, loadUserFiles, zipData, DATA_DIR, get manifest() { return manifest; } };
 })();

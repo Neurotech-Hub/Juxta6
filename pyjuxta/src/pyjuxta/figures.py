@@ -23,6 +23,7 @@ THEMES = {
         "line": "rgba(255,255,255,0.9)",
         "scale": [[0, "#141A57"], [0.35, "#2563EB"], [0.72, "#8B5CF6"], [1, "#F472E6"]],
         "diverge": [[0, "#60A5FA"], [0.5, "#171E55"], [1, "#F472E6"]],
+        "gray": [[0, "#1F2233"], [1, "#D1D5DB"]],
         "fade": "rgba(255,255,255,0.22)",
     },
     "light": {
@@ -35,6 +36,7 @@ THEMES = {
         "line": "#0B0F3B",
         "scale": [[0, "#EEF2FF"], [0.35, "#60A5FA"], [0.72, "#8B5CF6"], [1, "#EC0DD9"]],
         "diverge": [[0, "#2563EB"], [0.5, "#F4F5F8"], [1, "#EC0DD9"]],
+        "gray": [[0, "#F1F2F4"], [1, "#4B5563"]],
         "fade": "rgba(11,15,59,0.20)",
     },
 }
@@ -44,6 +46,21 @@ FONT = "Plus Jakarta Sans, Inter, Helvetica Neue, Arial, sans-serif"
 
 def theme_of(name: str) -> dict:
     return THEMES.get(name, THEMES["light"])
+
+
+def scale_color(scale, frac: float) -> str:
+    """Color at ``frac`` (0 to 1) on a Plotly colorscale of ``[[stop, "#RRGGBB"], ...]``.
+
+    For marks Plotly cannot color from a scale itself, such as the individual lines of a network.
+    """
+    f = min(1.0, max(0.0, float(frac)))
+    for (t0, c0), (t1, c1) in zip(scale[:-1], scale[1:]):
+        if f <= t1:
+            k = 0.0 if t1 == t0 else (f - t0) / (t1 - t0)
+            a = [int(c0[i:i + 2], 16) for i in (1, 3, 5)]
+            b = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+            return "rgb(" + ",".join(str(round(x + (y - x) * k)) for x, y in zip(a, b)) + ")"
+    return scale[-1][1]
 
 
 def layout(theme: str, **over) -> dict:

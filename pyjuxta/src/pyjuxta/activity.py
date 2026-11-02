@@ -18,11 +18,64 @@ MOTION_NOTE = ("motion counts 100 ms samples (per vitals row) in which the tag m
                "It is an activity proxy, not acceleration, and a quiet stretch is not proof of sleep.")
 
 
+# Longest stretch of missing data that ``diel`` and ``rhythms`` paint over by default (minutes). It is the
+# shortest value that closes a typical phone-download or maintenance pause of up to three hours.
+DEFAULT_INPAINT_MIN = 180
+
+
+def _inpaint_limit_s(inpaint) -> float:
+    """``inpaint`` (minutes; ``0`` off, ``inf`` any length) as seconds."""
+    try:
+        minutes = float(inpaint)
+    except (TypeError, ValueError):
+        raise ValueError("inpaint must be a number of minutes (0 for none, inf for any length)") from None
+    if np.isnan(minutes) or minutes < 0:
+        raise ValueError("inpaint must be 0 or more minutes (or inf)")
+    return minutes * 60.0
+
+
+def inpaint_bins(g: pd.DataFrame, bin_s: int, inpaint) -> pd.DataFrame:
+    """Fill short interior gaps in a binned series by straight-line interpolation in time.
+
+    A run of missing bins is filled when its length (bins x ``bin_s``) is at most ``inpaint`` minutes **and**
+    it has a real bin on both sides. Missing bins before the first real bin or after the last one are never
+    filled, so the recording is not made longer than it was. Filled bins are marked in ``inpainted`` and keep
+    ``n_rows = 0``.
+    """
+    g = g.copy()
+    limit_s = _inpaint_limit_s(inpaint)
+    n = len(g)
+    filled = np.zeros(n, dtype=bool)
+    if limit_s > 0 and n:
+        miss = g["active_frac"].isna().to_numpy()
+        i = 0
+        while i < n:
+            if not miss[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < n and miss[j + 1]:
+                j += 1
+            if i > 0 and j < n - 1 and (j - i + 1) * bin_s <= limit_s:
+                filled[i:j + 1] = True
+            i = j + 1
+        if filled.any():
+            x = np.arange(n, dtype=float)
+            good = ~miss
+            for col in ("motion_mean", "active_frac"):
+                y = g[col].to_numpy(dtype=float, copy=True)
+                y[filled] = np.interp(x[filled], x[good], y[good])
+                g[col] = y
+    g["inpainted"] = filled
+    return g
+
+
 def activity_bins(dev, *, bin_s: int, active_threshold: float, exclude_after_gap: bool = True,
-                  min_bin_coverage: float = 0.5, max_gap_s: float | None = None):
+                  min_bin_coverage: float = 0.5, max_gap_s: float | None = None, inpaint: float = 0):
     """Bin a device's motion onto a regular UTC grid. Returns ``(DataFrame, n_rows_excluded)``.
 
-    Bins with too few vitals rows are NaN (missing), never zero.
+    Bins with too few vitals rows are NaN (missing), never zero, unless ``inpaint`` asks for short interior
+    gaps to be filled (see :func:`inpaint_bins`); filled bins are flagged in the ``inpainted`` column.
     """
     v = dev.vitals_flagged(max_gap_s)
     n_excl = int(v.after_gap.sum()) if exclude_after_gap else 0
@@ -31,7 +84,10 @@ def activity_bins(dev, *, bin_s: int, active_threshold: float, exclude_after_gap
     v = v[v.motion.notna()]
     cols = ["bin_unix", "motion_mean", "active_frac", "n_rows", "coverage"]
     if v.empty:
-        return pd.DataFrame({c: pd.Series(dtype="float64") for c in cols}), n_excl
+        _inpaint_limit_s(inpaint)
+        empty = pd.DataFrame({c: pd.Series(dtype="float64") for c in cols})
+        empty["inpainted"] = pd.Series(dtype=bool)
+        return empty, n_excl
     b = (v.unix // bin_s) * bin_s
     tmp = pd.DataFrame({"bin_unix": b.to_numpy(), "motion": v.motion.to_numpy(),
                         "act": (v.motion >= active_threshold).astype(float).to_numpy()})
@@ -44,7 +100,7 @@ def activity_bins(dev, *, bin_s: int, active_threshold: float, exclude_after_gap
     g["coverage"] = (g.n_rows / (bin_s / max(dev.vitals_interval_s, 1))).clip(upper=1.0)
     low = g.coverage < min_bin_coverage
     g.loc[low, ["motion_mean", "active_frac"]] = np.nan
-    return g.reset_index(), n_excl
+    return inpaint_bins(g.reset_index(), bin_s, inpaint), n_excl
 
 
 def _smooth(s: pd.Series, bins: int) -> pd.Series:
@@ -56,7 +112,7 @@ def _smooth(s: pd.Series, bins: int) -> pd.Series:
 
 def activity(dep, devices=None, *, bin_s: int = 300, active_threshold: float = 1, smooth_bins: int = 1,
              signal: str = "active_frac", exclude_after_gap: bool = True, min_bin_coverage: float = 0.5,
-             max_gap_s: float | None = None) -> Result:
+             max_gap_s: float | None = None, inpaint: float = 0) -> Result:
     """Binned activity for one or more devices.
 
     Parameters
@@ -75,6 +131,10 @@ def activity(dep, devices=None, *, bin_s: int = 300, active_threshold: float = 1
         a vitals row, so that row also counts motion since boot or the last sync.
     min_bin_coverage
         A bin needs at least this fraction of its expected vitals rows, otherwise it is missing.
+    inpaint
+        Minutes of missing data inside the recording to paint over by straight-line interpolation: ``0``
+        (default) paints nothing, ``120`` fills gaps of up to and including two hours, ``float("inf")`` fills
+        any gap. The start and end of a recording are never extended. Filled bins are flagged and drawn dotted.
     """
     if signal not in ("active_frac", "motion_mean"):
         raise ValueError("signal must be 'active_frac' or 'motion_mean'")
@@ -84,7 +144,7 @@ def activity(dep, devices=None, *, bin_s: int = 300, active_threshold: float = 1
         d = dep.devices[dev_id]
         g, n_excl = activity_bins(d, bin_s=bin_s, active_threshold=active_threshold,
                                   exclude_after_gap=exclude_after_gap, min_bin_coverage=min_bin_coverage,
-                                  max_gap_s=max_gap_s)
+                                  max_gap_s=max_gap_s, inpaint=inpaint)
         v = d.vitals
         rows_ok = v.motion.dropna()
         g = g.copy()
@@ -94,11 +154,13 @@ def activity(dep, devices=None, *, bin_s: int = 300, active_threshold: float = 1
         g.insert(0, "device", dev_id)
         g.insert(1, "label", dep.label(dev_id))
         parts.append(g)
-        obs = g.active_frac.notna() if len(g) else pd.Series(dtype=bool)
+        filled = g.inpainted if len(g) else pd.Series(dtype=bool)
+        obs = (g.active_frac.notna() & ~filled) if len(g) else pd.Series(dtype=bool)
         per.append({
             "device": dev_id, "label": dep.label(dev_id), "role": dep.role(dev_id),
             "observed_h": round(float(obs.sum()) * bin_s / 3600, 2),
             "bins_observed": int(obs.sum()), "bins_total": int(len(g)),
+            "inpainted_h": round(float(filled.sum()) * bin_s / 3600, 2),
             "rows_used": int(g.n_rows.sum()) if len(g) else 0,
             "rows_excluded_after_gap": n_excl,
             "active_share": round(float((rows_ok >= active_threshold).mean()), 3) if len(rows_ok) else np.nan,
@@ -116,23 +178,39 @@ def activity(dep, devices=None, *, bin_s: int = 300, active_threshold: float = 1
         "rows_excluded_after_gap": int(by_dev.rows_excluded_after_gap.sum()) if len(by_dev) else 0,
     }
     params = {"bin_s": bin_s, "active_threshold": active_threshold, "smooth_bins": smooth_bins,
-              "signal": signal, "exclude_after_gap": exclude_after_gap, "min_bin_coverage": min_bin_coverage}
+              "signal": signal, "exclude_after_gap": exclude_after_gap, "min_bin_coverage": min_bin_coverage,
+              "inpaint": inpaint}
     notes = [MOTION_NOTE]
     if quality["rows_excluded_after_gap"]:
         notes.append(f"{quality['rows_excluded_after_gap']} vitals row(s) after a gap were left out: "
                      "they also count motion since the tag booted.")
+    note = _inpaint_note(float(by_dev.inpainted_h.sum()) if len(by_dev) else 0.0, inpaint)
+    if note:
+        notes.append(note)
     ctx = {"tz": dep.tz, "colors": {i: dep.color(i) for i in ids}, "labels": {i: dep.label(i) for i in ids},
            "order": ids}
     summary = {"n_devices": len(ids), "bin_s": bin_s, "signal": signal}
     return Result("activity", data, params, quality, summary, {"by_device": by_dev}, notes, _fig_activity, ctx)
 
 
+def _inpaint_note(filled_h: float, inpaint) -> str | None:
+    """Plain-language caveat for a result that contains filled bins (``None`` when nothing was filled)."""
+    if filled_h <= 0:
+        return None
+    limit = "any length" if np.isinf(float(inpaint)) else f"up to {float(inpaint):g} min"
+    return (f"{filled_h:g} h of missing data inside the recording ({limit}) was filled by straight-line "
+            "interpolation between the bins on either side. Those values are estimates, not readings; "
+            "the start and end of the recording were not extended.")
+
+
 def _midnight_shapes(unix_min: int, unix_max: int, tz: str, theme: str) -> list[dict]:
+    """Local-midnight lines that fall inside ``[unix_min, unix_max]`` (none before the data starts)."""
     t = F.theme_of(theme)
-    days = pd.date_range(local_strings([unix_min], tz)[0][:10], local_strings([unix_max], tz)[0][:10], freq="D")
-    return [{"type": "line", "xref": "x", "yref": "paper", "x0": f"{d:%Y-%m-%d} 00:00:00",
-             "x1": f"{d:%Y-%m-%d} 00:00:00", "y0": 0, "y1": 1, "line": {"color": t["grid"], "width": 1.5}}
-            for d in days]
+    lo, hi = local_strings([unix_min], tz)[0], local_strings([unix_max], tz)[0]
+    days = pd.date_range(lo[:10], hi[:10], freq="D")
+    xs = [f"{d:%Y-%m-%d} 00:00:00" for d in days]
+    return [{"type": "line", "xref": "x", "yref": "paper", "x0": x, "x1": x, "y0": 0, "y1": 1,
+             "line": {"color": t["grid"], "width": 1.5}} for x in xs if lo <= x <= hi]
 
 
 def _fig_activity(r: Result, theme: str) -> dict:
@@ -143,24 +221,45 @@ def _fig_activity(r: Result, theme: str) -> dict:
     col = ("active_frac_smooth" if smooth else "active_frac") if p["signal"] == "active_frac" else \
           ("motion_smooth" if smooth else "motion_mean")
     other = "motion_mean" if p["signal"] == "active_frac" else "active_frac"
-    traces = []
+    traces, dotted = [], []
+    first, last = [], []
     for dev in ctx["order"]:
-        s = r.data[(r.data.device == dev) & r.data[col].notna()]
+        d = r.data[r.data.device == dev].reset_index(drop=True)
+        s = d[d[col].notna()]
         if not len(s):
             continue
-        x, (y, o) = F.break_lines(s.bin_unix.to_numpy(), [s[col].to_numpy(), s[other].to_numpy()],
+        first.append(int(s.bin_unix.min()))
+        last.append(int(s.bin_unix.max()))
+        real = s[~s.inpainted.astype(bool)]
+        x, (y, o) = F.break_lines(real.bin_unix.to_numpy(), [real[col].to_numpy(), real[other].to_numpy()],
                                   ctx["tz"], p["bin_s"] * 1.5)
         traces.append({"type": "scatter", "mode": "lines", "x": x, "y": y, "customdata": o,
-                       "name": ctx["labels"][dev], "connectgaps": False,
+                       "name": ctx["labels"][dev], "connectgaps": False, "legendgroup": dev,
                        "line": {"width": 1.6, "color": ctx["colors"][dev], "shape": "hv"},
                        "hovertemplate": ("%{y:.0%}" if p["signal"] == "active_frac" else "%{y:.0f}") +
                                         "<br>%{x}<extra>" + ctx["labels"][dev] + "</extra>"})
+        # filled stretches, joined to the real bin on each side so the line reads as continuous
+        pm = d.inpainted.to_numpy(dtype=bool)
+        if pm.any():
+            near = pm | np.r_[pm[1:], False] | np.r_[False, pm[:-1]]
+            f = d[near & d[col].notna().to_numpy()]
+            fx, (fy, fo) = F.break_lines(f.bin_unix.to_numpy(), [f[col].to_numpy(), f[other].to_numpy()],
+                                         ctx["tz"], p["bin_s"] * 1.5)
+            dotted.append({"type": "scatter", "mode": "lines", "x": fx, "y": fy, "customdata": fo,
+                           "name": ctx["labels"][dev] + " (filled)", "connectgaps": False, "legendgroup": dev,
+                           "showlegend": False,
+                           "line": {"width": 1.6, "color": ctx["colors"][dev], "shape": "hv", "dash": "dot"},
+                           "hovertemplate": ("%{y:.0%}" if p["signal"] == "active_frac" else "%{y:.0f}") +
+                                            "<br>%{x}<extra>" + ctx["labels"][dev] + ", filled</extra>"})
+    traces += dotted
     y_title = ("Share of minutes with movement" if p["signal"] == "active_frac" else "Mean motion count per minute")
     ymax = 1.02 if p["signal"] == "active_frac" else None
-    t0, t1 = int(r.data.bin_unix.min()), int(r.data.bin_unix.max())
+    # Trim the axis to the plotted data: autorange would otherwise stretch to a midnight line before it.
+    t0, t1 = min(first), max(last) + int(p["bin_s"])
+    x_range = local_strings([t0, t1], ctx["tz"])
     return {"data": traces, "layout": F.layout(
         theme, height=330, shapes=_midnight_shapes(t0, t1, ctx["tz"], theme),
-        xaxis=F.date_axis(theme, title={"text": f"Local time ({ctx['tz']}); lines mark local midnight"}),
+        xaxis=F.date_axis(theme, range=x_range, title={"text": f"Local time ({ctx['tz']}); lines mark local midnight"}),
         yaxis=F.axis(theme, title={"text": y_title}, rangemode="tozero",
                      **({"range": [0, ymax], "tickformat": ".0%"} if ymax else {})))}
 
@@ -168,16 +267,22 @@ def _fig_activity(r: Result, theme: str) -> dict:
 # ── diel ───────────────────────────────────────────────────────────────────────
 
 def diel(dep, device, *, bin_s: int = 1800, active_threshold: float = 1, signal: str = "active_frac",
-         exclude_after_gap: bool = True, min_bin_coverage: float = 0.5) -> Result:
+         exclude_after_gap: bool = True, min_bin_coverage: float = 0.5,
+         inpaint: float = DEFAULT_INPAINT_MIN) -> Result:
     """Activity on the local 24-hour clock: one row per local date, one column per clock bin.
 
     A diel profile describes activity across the day. It does not show that a circadian clock drives it.
+
+    ``inpaint`` is the longest stretch of missing data, in minutes, painted over by straight-line
+    interpolation (``0`` none, ``float("inf")`` any length). Gaps inside the recording only: the start and
+    end are never extended. Filled cells are marked in the figure and counted on the result.
     """
     if DAY_S % bin_s:
         raise ValueError("bin_s must divide 86400 (for example 900, 1800, 3600)")
     dev = dep.device(device)
     g, n_excl = activity_bins(dev, bin_s=bin_s, active_threshold=active_threshold,
-                              exclude_after_gap=exclude_after_gap, min_bin_coverage=min_bin_coverage)
+                              exclude_after_gap=exclude_after_gap, min_bin_coverage=min_bin_coverage,
+                              inpaint=inpaint)
     col = signal
     if col not in ("active_frac", "motion_mean"):
         raise ValueError("signal must be 'active_frac' or 'motion_mean'")
@@ -187,12 +292,12 @@ def diel(dep, device, *, bin_s: int = 1800, active_threshold: float = 1, signal:
         day, sod = local_clock(obs.bin_unix.to_numpy(), dep.tz)
         tod = np.floor(sod / bin_s).astype(int).clip(0, nb - 1)
         long = pd.DataFrame({"local_date": day, "tod_bin": tod, "value": obs[col].to_numpy(),
-                             "n_rows": obs.n_rows.to_numpy()})
-        long = long.groupby(["local_date", "tod_bin"], as_index=False).agg(value=("value", "mean"),
-                                                                           n_rows=("n_rows", "sum"))
+                             "n_rows": obs.n_rows.to_numpy(), "inpainted": obs.inpainted.to_numpy(dtype=bool)})
+        long = long.groupby(["local_date", "tod_bin"], as_index=False).agg(
+            value=("value", "mean"), n_rows=("n_rows", "sum"), inpainted=("inpainted", "all"))
         long["clock_h"] = long.tod_bin * bin_s / 3600
     else:
-        long = pd.DataFrame(columns=["local_date", "tod_bin", "value", "n_rows", "clock_h"])
+        long = pd.DataFrame(columns=["local_date", "tod_bin", "value", "n_rows", "inpainted", "clock_h"])
     days = sorted(long.local_date.unique()) if len(long) else []
     per_day = long.groupby("local_date").tod_bin.nunique() if len(long) else pd.Series(dtype=int)
     complete = [d for d in days if per_day[d] >= 0.9 * nb]
@@ -206,17 +311,21 @@ def diel(dep, device, *, bin_s: int = 1800, active_threshold: float = 1, signal:
                "peak_value": float(peak["mean"]) if peak is not None else None,
                "quietest_clock_h": float(trough.clock_h) if trough is not None else None,
                "quietest_value": float(trough["mean"]) if trough is not None else None}
-    quality = {"coverage": round(len(long) / (len(days) * nb), 3) if days else 0.0,
-               "n_observations": int(long.n_rows.sum()) if len(long) else 0}
+    n_filled = int(long.inpainted.sum()) if len(long) else 0
+    quality = {"coverage": round((len(long) - n_filled) / (len(days) * nb), 3) if days else 0.0,
+               "n_observations": int(long.n_rows.sum()) if len(long) else 0, "inpainted_bins": n_filled}
     notes = [MOTION_NOTE,
              "Each row is a local calendar day. Partial days (the recording started or stopped mid-day) are "
              "kept but counted separately from complete days.",
              "A profile averaged over only a few days says little about a stable rhythm."]
     if len(days) and len(days) < 3:
         notes.append(f"Only {len(days)} local day(s) have data; the average profile is a sketch.")
+    note = _inpaint_note(n_filled * bin_s / 3600, inpaint)
+    if note:
+        notes.append(note)
     ctx = {"tz": dep.tz, "label": dep.label(dev.id), "color": dep.color(dev.id), "days": days, "nb": nb}
     params = {"device": dev.id, "bin_s": bin_s, "active_threshold": active_threshold, "signal": signal,
-              "exclude_after_gap": exclude_after_gap}
+              "exclude_after_gap": exclude_after_gap, "inpaint": inpaint}
     return Result("diel", long, params, quality, summary, {"profile": prof}, notes, _fig_diel, ctx)
 
 
@@ -228,8 +337,12 @@ def _fig_diel(r: Result, theme: str) -> dict:
     bin_h = p["bin_s"] / 3600
     z = np.full((len(days), nb), np.nan)
     di = {d: i for i, d in enumerate(days)}
+    filled_x, filled_y = [], []
     for row in r.data.itertuples(index=False):
         z[di[row.local_date], int(row.tod_bin)] = row.value
+        if row.inpainted:
+            filled_x.append(int(row.tod_bin) * bin_h + bin_h / 2)
+            filled_y.append(row.local_date)
     xh = [i * bin_h + bin_h / 2 for i in range(nb)]
     prof = r.tables["profile"]
     pct = p["signal"] == "active_frac"
@@ -246,8 +359,16 @@ def _fig_diel(r: Result, theme: str) -> dict:
             "name": "Average", "showlegend": False,
             "hovertemplate": "%{x:.1f} h<br>" + ("%{y:.0%}" if pct else "%{y:.0f}") + "<extra>average</extra>"}
     xa = dict(range=[0, 24], tickvals=list(range(0, 25, 3)), ticktext=[f"{h:02d}:00" for h in range(0, 25, 3)])
-    return {"data": [heat, line], "layout": F.layout(
-        theme, height=150 + 34 * len(days) + 150, margin={"l": 90, "r": 24, "t": 16, "b": 50},
+    data = [heat, line]
+    if filled_x:
+        data.append({"type": "scatter", "mode": "markers", "x": filled_x, "y": filled_y, "xaxis": "x", "yaxis": "y",
+                     "name": "filled (no recording)", "showlegend": True,
+                     "marker": {"symbol": "circle-open", "size": 5, "color": t["line"], "line": {"width": 1}},
+                     "hovertemplate": "%{y} %{x:.1f} h<br>filled between recordings<extra></extra>"})
+    return {"data": data, "layout": F.layout(
+        theme, height=150 + 34 * len(days) + 150 + (24 if filled_x else 0),
+        margin={"l": 90, "r": 24, "t": 40 if filled_x else 16, "b": 50},
+        legend={"orientation": "h", "y": 1.0, "yanchor": "bottom", "x": 0},
         xaxis=F.axis(theme, domain=[0, 1], anchor="y", showticklabels=False, **{k: v for k, v in xa.items() if k == "range"}),
         yaxis=F.axis(theme, domain=[0.36, 1], type="category", autorange="reversed", title={"text": "Local date"}),
         xaxis2=F.axis(theme, domain=[0, 1], anchor="y2", title={"text": f"Local clock ({ctx['tz']})"}, **xa),
@@ -266,7 +387,8 @@ def _circular_window(profile: np.ndarray, width: int, kind: str) -> tuple[float,
 
 
 def rhythms(dep, device, *, min_days: int = 3, min_day_coverage: float = 0.9, active_threshold: float = 1,
-            exclude_after_gap: bool = True, min_bin_coverage: float = 0.5) -> Result:
+            exclude_after_gap: bool = True, min_bin_coverage: float = 0.5,
+            inpaint: float = DEFAULT_INPAINT_MIN) -> Result:
     """Nonparametric rest-activity metrics on hourly mean motion, behind a quality gate.
 
     * **IS** interdaily stability: how closely each day repeats the average 24 h pattern (0-1).
@@ -275,24 +397,32 @@ def rhythms(dep, device, *, min_days: int = 3, min_day_coverage: float = 0.9, ac
       average day; **RA** = (M10 - L5) / (M10 + L5).
 
     The metrics are returned only when at least ``min_days`` local days are nearly complete
-    (``min_day_coverage`` of their hourly bins observed). Otherwise the result says why, and the metrics are
-    NaN. ``min_days = 3`` is an engineering safeguard, not a published threshold; lowering it is allowed and
-    is noted on the result.
+    (``min_day_coverage`` of their hourly bins observed, or filled by ``inpaint``). Otherwise the result says
+    why, and the metrics are NaN. ``min_days = 3`` is an engineering safeguard, not a published threshold;
+    lowering it is allowed and is noted on the result.
+
+    ``inpaint`` is the longest stretch of missing data, in minutes, painted over by straight-line
+    interpolation so a pause for a download or a reboot does not disqualify a whole day (``0`` none,
+    ``float("inf")`` any length). Gaps inside the recording only: the start and end are never extended,
+    so a day the tag was not on for still does not count. Filled hours are reported separately.
     """
     dev = dep.device(device)
     g, _ = activity_bins(dev, bin_s=3600, active_threshold=active_threshold, exclude_after_gap=exclude_after_gap,
-                         min_bin_coverage=min_bin_coverage)
+                         min_bin_coverage=min_bin_coverage, inpaint=inpaint)
     obs = g[g.motion_mean.notna()] if len(g) else g
     if len(obs):
         day, sod = local_clock(obs.bin_unix.to_numpy(), dep.tz)
         hours = pd.DataFrame({"bin_unix": obs.bin_unix.to_numpy(), "local_date": day,
                               "clock_h": np.floor(sod / 3600).astype(int).clip(0, 23),
-                              "x": obs.motion_mean.to_numpy()})
-        per_day = hours.groupby("local_date").agg(observed_hours=("x", "size")).reset_index()
+                              "x": obs.motion_mean.to_numpy(),
+                              "filled": obs.inpainted.to_numpy(dtype=bool)})
+        per_day = hours.groupby("local_date").agg(
+            usable_hours=("x", "size"), filled_hours=("filled", "sum")).reset_index()
+        per_day["observed_hours"] = per_day.usable_hours - per_day.filled_hours
     else:
-        hours = pd.DataFrame(columns=["bin_unix", "local_date", "clock_h", "x"])
-        per_day = pd.DataFrame({"local_date": [], "observed_hours": []})
-    per_day["complete"] = per_day.observed_hours >= 24 * min_day_coverage
+        hours = pd.DataFrame(columns=["bin_unix", "local_date", "clock_h", "x", "filled"])
+        per_day = pd.DataFrame({"local_date": [], "usable_hours": [], "filled_hours": [], "observed_hours": []})
+    per_day["complete"] = per_day.usable_hours >= 24 * min_day_coverage
     complete = set(per_day.local_date[per_day.complete])
     n_complete = len(complete)
     available = n_complete >= max(1, min_days)
@@ -334,11 +464,17 @@ def rhythms(dep, device, *, min_days: int = 3, min_day_coverage: float = 0.9, ac
         notes.append("IS needs at least 2 complete days to compare days with each other; it is left empty.")
     summary = {"status": status, "available": bool(available), "complete_days": n_complete,
                "min_days": min_days, **{k: (None if pd.isna(v) else float(v)) for k, v in metrics.items()}}
-    quality = {"n_observations": int(len(hours)), "complete_days": n_complete}
+    n_filled = int(hours.filled.sum()) if len(hours) else 0
+    quality = {"n_observations": int(len(hours)) - n_filled, "complete_days": n_complete,
+               "inpainted_hours": n_filled}
+    summary["filled_hours"] = n_filled
+    note = _inpaint_note(float(n_filled), inpaint)
+    if note:
+        notes.append(note)
     ctx = {"tz": dep.tz, "label": dep.label(dev.id), "color": dep.color(dev.id), "profile": profile,
            "min_days": min_days}
     params = {"device": dev.id, "min_days": min_days, "min_day_coverage": min_day_coverage,
-              "active_threshold": active_threshold}
+              "active_threshold": active_threshold, "inpaint": inpaint}
     return Result("rhythms", per_day, params, quality, summary, {"profile": profile}, notes, _fig_rhythms, ctx)
 
 
@@ -348,11 +484,17 @@ def _fig_rhythms(r: Result, theme: str) -> dict:
         d = r.data
         if not len(d):
             return F.empty_figure(theme, "No motion data in range")
-        bars = {"type": "bar", "x": d.local_date.tolist(), "y": d.observed_hours.tolist(),
+        bars = {"type": "bar", "x": d.local_date.tolist(), "y": d.observed_hours.tolist(), "name": "recorded",
                 "marker": {"color": [ctx["color"] if c else t["fade"] for c in d.complete]},
-                "hovertemplate": "%{x}<br>%{y} of 24 hourly bins<extra></extra>"}
-        return {"data": [bars], "layout": F.layout(
-            theme, height=300, annotations=[{
+                "hovertemplate": "%{x}<br>%{y} of 24 hourly bins recorded<extra></extra>"}
+        data = [bars]
+        if d.filled_hours.sum() > 0:
+            data.append({"type": "bar", "x": d.local_date.tolist(), "y": d.filled_hours.tolist(),
+                         "name": "filled (no recording)",
+                         "marker": {"color": "rgba(139,92,246,0.45)", "line": {"width": 1, "color": t["line"]}},
+                         "hovertemplate": "%{x}<br>%{y} hourly bins filled<extra></extra>"})
+        return {"data": data, "layout": F.layout(
+            theme, height=300, barmode="stack", showlegend=bool(d.filled_hours.sum() > 0), annotations=[{
                 "text": f"Not computed: {r.summary['complete_days']} complete day(s), {r.summary['min_days']} required",
                 "xref": "paper", "yref": "paper", "x": 0.5, "y": 1.1, "showarrow": False,
                 "font": {"size": 13, "color": t["muted"]}}],

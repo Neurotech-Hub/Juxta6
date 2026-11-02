@@ -78,13 +78,19 @@ def synchrony(dep, a, b, *, bin_s: int = 300, active_threshold: float = 1, signa
               method: str = "spearman", transform: str = "none", max_lag_bins: int = 12, null: str = "circular",
               n_null: int = 500, min_shift_h: float = 2.0, seed: int = 0, active_bin_frac: float = 0.5,
               min_rssi: float = -75, merge_gap_s: float = 90, min_detections: int = 2,
-              exclude_after_gap: bool = True, min_bin_coverage: float = 0.5) -> Result:
+              exclude_after_gap: bool = True, min_bin_coverage: float = 0.5, inpaint: float = 0) -> Result:
     """How closely two devices' activity lines up, and how that compares with chance.
 
     Parameters
     ----------
     bin_s
-        Bin width. Only bins where **both** devices have enough data are used; nothing is interpolated.
+        Bin width. Only bins where **both** devices have enough data are used; nothing is interpolated unless
+        you set ``inpaint``.
+    inpaint
+        Minutes of missing data inside either recording to paint over by straight-line interpolation
+        (``0``, the default, paints nothing; ``float("inf")`` fills any gap). Filled bins are estimates, not
+        readings, and they make the series smoother than it was, so use this knowingly. The result reports how
+        many aligned bins were filled.
     active_threshold, active_bin_frac
         A vitals row is active when ``motion >= active_threshold``. A bin is active when at least
         ``active_bin_frac`` of its rows are. Used for agreement and kappa.
@@ -119,7 +125,7 @@ def synchrony(dep, a, b, *, bin_s: int = 300, active_threshold: float = 1, signa
     A, B = dep.device(a).id, dep.device(b).id
     da, db = dep.devices[A], dep.devices[B]
     kw = dict(bin_s=bin_s, active_threshold=active_threshold, exclude_after_gap=exclude_after_gap,
-              min_bin_coverage=min_bin_coverage)
+              min_bin_coverage=min_bin_coverage, inpaint=inpaint)
     ga, _ = activity_bins(da, **kw)
     gb, _ = activity_bins(db, **kw)
     ctx = {"tz": dep.tz, "ids": [A, B], "labels": {A: dep.label(A), B: dep.label(B)},
@@ -140,6 +146,8 @@ def synchrony(dep, a, b, *, bin_s: int = 300, active_threshold: float = 1, signa
     vb = np.log1p(rb) if transform == "log1p" else rb
     aligned = np.isfinite(va) & np.isfinite(vb)
     n_al = int(aligned.sum())
+    filled = (on_grid(ga, "inpainted") == 1) | (on_grid(gb, "inpainted") == 1)
+    n_filled = int((aligned & filled).sum())
     n_grid = len(grid)
     _, sod = local_clock(grid, dep.tz)
     hour = np.floor(sod / 3600).astype(int)
@@ -250,6 +258,10 @@ def synchrony(dep, a, b, *, bin_s: int = 300, active_threshold: float = 1, signa
     notes = [MOTION_NOTE,
              "Correlation measures whether two series rise and fall together, not whether the animals interact. "
              "Two animals that are both busy by day correlate without any social link."]
+    if n_filled:
+        notes.append(f"{n_filled} of the {n_al} aligned bins hold filled values (inpaint={inpaint}), not readings. "
+                     "Interpolated stretches are smooth, so they can inflate correlation and shrink the effective "
+                     "sample.")
     if n_al < 100:
         notes.append(f"Only {n_al} aligned bins: treat every number here as rough.")
     if null == "day_shift" and len(null_r) < 20:
@@ -264,7 +276,9 @@ def synchrony(dep, a, b, *, bin_s: int = 300, active_threshold: float = 1, signa
     params = {"a": A, "b": B, "bin_s": bin_s, "active_threshold": active_threshold, "signal": signal,
               "method": method, "transform": transform, "max_lag_bins": max_lag_bins, "null": null,
               "n_null": n_null, "min_shift_h": min_shift_h, "seed": seed, "active_bin_frac": active_bin_frac,
-              "min_rssi": min_rssi, "merge_gap_s": merge_gap_s, "min_detections": min_detections}
+              "min_rssi": min_rssi, "merge_gap_s": merge_gap_s, "min_detections": min_detections,
+              "inpaint": inpaint}
+    summary["filled_bins"] = n_filled
     ctx.update({"lags": lags, "null_r": null_r, "matched": matched, "together": together, "grid": grid})
     return Result("synchrony", data, params, quality, summary,
                   {"lags": lags, "conditioned": cond, "null": pd.DataFrame({"null_r": null_r})}, notes,

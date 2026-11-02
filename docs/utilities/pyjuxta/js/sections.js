@@ -26,7 +26,10 @@ const U = (() => {
   return { esc, has, n, pct, clock, mins, pl, str, list };
 })();
 
-const GAP_HELP = "A silence longer than this ends a recording session. The default is three vitals intervals.";
+// Missing stretches inside a recording that pyJuxta may paint over (minutes). Infinity is any length.
+const INPAINT_OPTS = [[0, "don't fill"], [30, "30 min"], [60, "1 h"], [120, "2 h"], [180, "3 h"], [360, "6 h"], [Infinity, "any length"]];
+const INPAINT_HELP = "A pause inside the recording (a phone download, a reboot) up to this long is bridged by a straight line. The start and end are never extended, and filled stretches are marked.";
+const pyInpaint = (v) => (v === Infinity ? 'float("inf")' : String(v));
 const BIN_OPTS = (vals) => vals.map((v) => [v, v < 3600 ? `${v / 60} min` : `${v / 3600} h`]);
 const DIRECTIONS = [
   ["either", "either tag heard the other"],
@@ -46,14 +49,12 @@ const SECTIONS = [
     title: "What did each tag record?",
     question:
       "Before asking anything about behavior, find out when each tag was actually logging. A gap in the data is missing time, not quiet time, and every later step has to respect that.",
-    tryThis: "Shorten the gap setting and watch long sessions split where a tag paused. Diamonds are phone syncs.",
-    controls: [
-      { id: "max_gap_min", type: "range", label: "Gap that ends a session", min: 3, max: 120, step: 1, value: 3, fmt: (v) => `${v} min`, help: GAP_HELP },
-    ],
+    tryThis: "Hover a bar to see when a session started and ended. The spaces between bars are missing time, not quiet time. Diamonds are phone syncs.",
+    controls: [],
     outputs: [
       {
         key: "availability",
-        code: (p, S) => `res = dep.availability(max_gap_s=${p.max_gap_min * 60})`,
+        code: () => `res = dep.availability()`,
         read(r, p, S) {
           const s = r.summary;
           return `<p><b>${s.devices}</b> tags (${s.mobiles} mobile, ${s.bases} base) logged over <b>${U.n(s.span_h, 1)} h</b> in ${U.pl(s.sessions, "session")}, with ${U.pl(s.phone_syncs, "phone sync")}. The least covered was <b>${U.esc(S.name(s.least_covered))}</b>, recording ${U.pct(s.least_coverage)} of its own span.</p>`;
@@ -85,20 +86,21 @@ const SECTIONS = [
     title: "When was each mobile moving?",
     question:
       "The accelerometer counts how many 100 ms samples in each minute showed movement. Binned on a fixed clock, that shows when each tag was active, and the grey bands show where it was not recording at all.",
-    tryThis: "Raise the threshold to count only vigorous minutes. Widen the smoothing to see the broad shape of the day instead of single minutes.",
+    tryThis: "Raise the threshold to count only vigorous minutes. Adjust the smoothing to see the broad shape of the day instead of single minutes.",
     needs: (S) => (S.ids.length ? null : "No devices were loaded."),
     controls: [
       { id: "devices", type: "devices", label: "Devices", pool: "all", def: (S) => (S.mobiles.length ? S.mobiles : S.ids) },
       { id: "bin_s", type: "select", label: "Bin width", options: BIN_OPTS([60, 300, 600, 900, 1800, 3600]), value: 900, help: "Readings inside a bin are combined. Bins with too little coverage are left empty." },
       { id: "active_threshold", type: "range", label: "A minute counts as active at motion ≥", min: 1, max: 300, step: 1, value: 1, fmt: (v) => `${v}`, help: "motion is a count of 100 ms samples in a minute (0 to 600). 1 means any movement at all." },
-      { id: "smooth_bins", type: "range", label: "Smoothing", min: 1, max: 12, step: 1, value: 1, fmt: (v) => (v === 1 ? "none" : `${v} bins`), help: "A centered moving average. It never fills a gap." },
+      { id: "smooth_bins", type: "range", label: "Smoothing", min: 1, max: 12, step: 1, value: 6, fmt: (v) => (v === 1 ? "none" : `${v} bins`), help: "A centered moving average. It never fills a gap." },
       { id: "signal", type: "select", adv: true, label: "Show", options: [["active_frac", "share of minutes active"], ["motion_mean", "mean motion count"]], value: "active_frac", help: "" },
+      { id: "inpaint", type: "select", adv: true, label: "Fill gaps up to", options: INPAINT_OPTS, value: 0, help: INPAINT_HELP },
     ],
     outputs: [
       {
         key: "activity",
         code: (p, S) =>
-          `res = dep.activity(${U.list(p.devices.map(S.ref))}, bin_s=${p.bin_s}, active_threshold=${p.active_threshold}, smooth_bins=${p.smooth_bins}, signal=${U.str(p.signal)})`,
+          `res = dep.activity(${U.list(p.devices.map(S.ref))}, bin_s=${p.bin_s}, active_threshold=${p.active_threshold}, smooth_bins=${p.smooth_bins}, signal=${U.str(p.signal)}, inpaint=${pyInpaint(p.inpaint)})`,
         read(r, p, S) {
           const rows = r.rec.by_device || [];
           const lines = rows.map(
@@ -124,21 +126,22 @@ const SECTIONS = [
     question:
       "Stack the days on top of each other and average them by time of day. Then ask a stricter question: is there a stable daily rhythm, or just a few days that happened to look alike? pyJuxta only reports rhythm numbers when the data can support them.",
     tryThis:
-      "Open the rhythm settings and lower the number of required days or the coverage a day needs. See what the library says when the evidence is thin, and what changes when it is not.",
+      "Switch gap filling off and watch a day with a pause stop counting as complete. Then open the rhythm settings and raise the number of required days to the library's 3, or change the coverage a day needs. See what the library says when the evidence is thin, and what changes when it is not.",
     needs: (S) => (S.ids.length ? null : "No devices were loaded."),
     controls: [
       { id: "device", type: "device", label: "Device", pool: "all", def: (S) => S.mobiles[0] || S.ids[0] },
       { id: "bin_s", type: "select", label: "Time-of-day bin", options: BIN_OPTS([900, 1800, 3600]), value: 1800 },
       { id: "signal", type: "select", label: "Show", options: [["active_frac", "share of minutes active"], ["motion_mean", "mean motion count"]], value: "active_frac" },
       { id: "active_threshold", type: "range", label: "A minute counts as active at motion ≥", min: 1, max: 300, step: 1, value: 1, fmt: (v) => `${v}` },
-      { id: "min_days", type: "range", adv: true, label: "Rhythm: complete days required", min: 1, max: 7, step: 1, value: 3, fmt: (v) => `${v}`, help: "Interdaily stability needs at least two complete days whatever this is set to." },
+      { id: "inpaint", type: "select", label: "Fill gaps up to", options: INPAINT_OPTS, value: 180, help: INPAINT_HELP },
+      { id: "min_days", type: "range", adv: true, label: "Rhythm: complete days required", min: 1, max: 7, step: 1, value: 1, fmt: (v) => `${v}`, help: "The library's own default is 3. The example only holds one day that can be complete, so this starts at 1; raise it to see the library decline. Interdaily stability needs at least two complete days whatever this is set to." },
       { id: "min_day_coverage", type: "range", adv: true, label: "Rhythm: share of a day that must be recorded", min: 0.3, max: 1, step: 0.05, value: 0.9, fmt: (v) => `${Math.round(v * 100)}%`, help: "A day below this does not count as complete." },
     ],
     outputs: [
       {
         key: "diel",
         code: (p, S) =>
-          `res = dep.diel(${U.str(S.ref(p.device))}, bin_s=${p.bin_s}, active_threshold=${p.active_threshold}, signal=${U.str(p.signal)})`,
+          `res = dep.diel(${U.str(S.ref(p.device))}, bin_s=${p.bin_s}, active_threshold=${p.active_threshold}, signal=${U.str(p.signal)}, inpaint=${pyInpaint(p.inpaint)})`,
         read(r, p, S) {
           const s = r.summary;
           const f = (v) => (p.signal === "active_frac" ? U.pct(v) : U.n(v, 1));
@@ -149,13 +152,14 @@ const SECTIONS = [
         key: "rhythms",
         heading: "Can we call it a rhythm?",
         code: (p, S) =>
-          `res = dep.rhythms(${U.str(S.ref(p.device))}, min_days=${p.min_days}, min_day_coverage=${p.min_day_coverage})`,
+          `res = dep.rhythms(${U.str(S.ref(p.device))}, min_days=${p.min_days}, min_day_coverage=${p.min_day_coverage}, inpaint=${pyInpaint(p.inpaint)})`,
         read(r, p, S) {
           const s = r.summary;
+          const filled = s.filled_hours ? ` (${U.pl(s.filled_hours, "hour")} filled in across the recording)` : "";
           if (!s.available) {
-            return `<p><b>Not reported.</b> ${U.pl(s.complete_days, "complete day")} found; ${s.min_days} required. A rest-activity rhythm needs repeated whole days, so the library declines to compute numbers it could not stand behind.</p>`;
+            return `<p><b>Not reported.</b> ${U.pl(s.complete_days, "complete day")} found${filled}; ${s.min_days} required. A rest-activity rhythm needs repeated whole days, so the library declines to compute numbers it could not stand behind.</p>`;
           }
-          return `<p>From <b>${U.pl(s.complete_days, "complete day")}</b>: stability (IS) <b>${U.n(s.IS, 2)}</b>, fragmentation (IV) <b>${U.n(s.IV, 2)}</b>, least-active five hours start near <b>${U.clock(s.L5_onset_h)}</b>, most-active ten hours near <b>${U.clock(s.M10_onset_h)}</b>, relative amplitude <b>${U.n(s.RA, 2)}</b>.</p>`;
+          return `<p>From <b>${U.pl(s.complete_days, "complete day")}</b>${filled}: stability (IS) <b>${U.n(s.IS, 2)}</b>, fragmentation (IV) <b>${U.n(s.IV, 2)}</b>, least-active five hours start near <b>${U.clock(s.L5_onset_h)}</b>, most-active ten hours near <b>${U.clock(s.M10_onset_h)}</b>, relative amplitude <b>${U.n(s.RA, 2)}</b>.</p>`;
         },
       },
     ],
@@ -171,8 +175,8 @@ const SECTIONS = [
     needs: (S) => (S.ids.length ? null : "No devices were loaded."),
     controls: [
       { id: "variable", type: "select", label: "Measurement", options: [["temp_c", "Temperature"], ["humidity", "Humidity"], ["lux", "Light"]], value: "temp_c" },
-      { id: "devices", type: "devices", label: "Devices", pool: "all", def: (S) => S.ids },
       { id: "bin_s", type: "select", label: "Bin width", options: BIN_OPTS([300, 900, 1800, 3600]), value: 900 },
+      { id: "devices", type: "devices", label: "Devices", pool: "all", def: (S) => S.ids },
     ],
     outputs: [
       {
@@ -232,20 +236,38 @@ const SECTIONS = [
     id: "matrix",
     title: "Who heard whom?",
     question:
-      "Every tag both listens and advertises, so you can lay the whole deployment out as a grid: who heard whom, and how often. Rows listen, columns are heard. It is a quick check that the house hangs together before you trust anything pairwise.",
-    tryThis: "Switch to median signal to see strength instead of how often. A cell that is bright one way and dark the other is worth a look at scan and advertise settings.",
+      "Every tag both listens and advertises, so you can lay the whole deployment out as a grid: who heard whom, and how often. Rows listen, columns are heard. It is a quick check that the house hangs together before you trust anything pairwise. The network view takes one row of that grid and draws it with a single tag at the centre.",
+    tryThis: "In the grid, switch to median signal to see strength instead of how often; a cell that is bright one way and dark the other is worth a look at scan and advertise settings. Then try the network and pick different centre tags: nearer the centre means a stronger signal.",
     needs: (S) => (S.ids.length >= 2 ? null : "This step needs at least two tags."),
     controls: [
-      { id: "metric", type: "select", label: "Cell shows", options: [["rate", "share of scans that heard it"], ["median_rssi", "median signal"]], value: "rate" },
+      { id: "view", type: "select", label: "View", options: [["grid", "grid: every pair at once"], ["network", "network: one tag at the centre"]], value: "grid", help: "Both are built from the same sightings, so the numbers agree." },
+      { id: "center", type: "device", label: "Centre tag", pool: "all", def: (S) => S.mobiles[0] || S.ids[0], show: (p) => p.view === "network", help: "Shows what this tag heard. Pick another to see what it heard instead." },
+      { id: "metric", type: "select", label: "Cell shows", options: [["rate", "share of scans that heard it"], ["median_rssi", "median signal"]], value: "rate", show: (p) => p.view === "grid" },
       { id: "min_rssi", type: "range", label: "Weakest signal that counts", min: -100, max: -50, step: 1, value: -90, fmt: (v) => `${v} dBm` },
     ],
     outputs: [
       {
         key: "matrix",
-        code: (p) => `res = dep.proximity_matrix(min_rssi=${p.min_rssi}, metric=${U.str(p.metric)})`,
+        code: (p, S) =>
+          p.view === "network"
+            ? `res = dep.proximity_network(${U.str(S.ref(p.center))}, min_rssi=${p.min_rssi})`
+            : `res = dep.proximity_matrix(min_rssi=${p.min_rssi}, metric=${U.str(p.metric)})`,
         read(r, p, S) {
           const s = r.summary;
-          return s.strongest_pair ? `<p>The strongest link was <b>${U.esc(s.strongest_pair)}</b> (${p.metric === "rate" ? U.pct(s.strongest_rate) + " of its scans" : U.n(s.strongest_rate, 0) + " dBm"}).</p>` : "";
+          if (p.view === "network") {
+            const c = U.esc(s.center_label);
+            const lead = `<p><b>${c}</b> heard <b>${s.n_heard} of ${U.pl(s.n_peers, "other tag")}</b> at ${p.min_rssi} dBm or stronger.`;
+            if (!s.best_pair) {
+              return `${lead}${s.n_heard ? ` None of them is a ${s.center_role === "mobile" ? "base" : "mobile"}, so there is no mobile-to-base link to point at.` : ""}</p>`;
+            }
+            const kind = s.center_role === "mobile" ? "base" : "mobile";
+            return `${lead} Of the ${kind}s, the strongest link was <b>${U.esc(s.best_pair)}</b> (${U.pct(s.best_value)} of its scans, median ${U.n(s.best_median_rssi, 0)} dBm), outlined in the graph. Nearer the centre means a stronger median signal; wider edges and bigger nodes mean more of its scans heard that tag.</p>`;
+          }
+          if (s.best_pair) {
+            const how = s.best_metric === "rate" ? `${U.pct(s.best_value)} of its scans` : `a median of ${U.n(s.best_value, 0)} dBm`;
+            return `<p>Between a mobile and a base, the strongest link was <b>${U.esc(s.best_pair)}</b> (${how}), outlined in the grid. That is the best hint of where a worn tag spent its time, though walls and orientation shape it as much as distance.</p>`;
+          }
+          return "";
         },
       },
     ],
@@ -303,6 +325,7 @@ const SECTIONS = [
       { id: "n_null", type: "range", label: "Number of shifts", min: 50, max: 1000, step: 50, value: 300, fmt: (v) => `${v}`, help: "More shifts give a finer p-value and take longer." },
       { id: "active_threshold", type: "range", adv: true, label: "A minute counts as active at motion ≥", min: 1, max: 300, step: 1, value: 1, fmt: (v) => `${v}` },
       { id: "transform", type: "select", adv: true, label: "Transform", options: [["none", "none"], ["log1p", "log(1 + x)"]], value: "none" },
+      { id: "inpaint", type: "select", adv: true, label: "Fill gaps up to", options: INPAINT_OPTS, value: 0, help: INPAINT_HELP + " Filled bins are estimates, so they can inflate a correlation." },
       { id: "min_shift_h", type: "range", adv: true, label: "Smallest shift", min: 0.5, max: 12, step: 0.5, value: 2, fmt: (v) => `${v} h`, help: "Shifts smaller than this would barely move the data." },
       { id: "min_rssi", type: "range", adv: true, label: "Encounter: weakest signal", min: -100, max: -40, step: 1, value: -70, fmt: (v) => `${v} dBm` },
       { id: "merge_gap_s", type: "range", adv: true, label: "Encounter: join sightings closer than", min: 30, max: 600, step: 30, value: 90, fmt: (v) => U.mins(v / 60) },
@@ -312,7 +335,7 @@ const SECTIONS = [
       {
         key: "synchrony",
         code: (p, S) =>
-          `res = dep.synchrony(${U.str(S.ref(p.a))}, ${U.str(S.ref(p.b))}, bin_s=${p.bin_s}, signal=${U.str(p.signal)}, method=${U.str(p.method)}, max_lag_bins=${p.max_lag_bins},\n                    null=${U.str(p.null)}, n_null=${p.n_null}, active_threshold=${p.active_threshold}, transform=${U.str(p.transform)},\n                    min_shift_h=${p.min_shift_h}, min_rssi=${p.min_rssi}, merge_gap_s=${p.merge_gap_s}, seed=${p.seed})`,
+          `res = dep.synchrony(${U.str(S.ref(p.a))}, ${U.str(S.ref(p.b))}, bin_s=${p.bin_s}, signal=${U.str(p.signal)}, method=${U.str(p.method)}, max_lag_bins=${p.max_lag_bins},\n                    null=${U.str(p.null)}, n_null=${p.n_null}, active_threshold=${p.active_threshold}, transform=${U.str(p.transform)},\n                    min_shift_h=${p.min_shift_h}, min_rssi=${p.min_rssi}, merge_gap_s=${p.merge_gap_s}, inpaint=${pyInpaint(p.inpaint)}, seed=${p.seed})`,
         read(r, p, S) {
           const s = r.summary;
           const a = U.esc(S.name(s.a)), b = U.esc(S.name(s.b));

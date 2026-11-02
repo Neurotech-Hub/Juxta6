@@ -108,7 +108,8 @@ def _fmt_ep(df: pd.DataFrame, tz: str) -> pd.DataFrame:
 
 def _ctx(dep, ids) -> dict:
     return {"tz": dep.tz, "colors": {i: dep.color(i) for i in dep.devices},
-            "labels": {i: dep.label(i) for i in dep.devices}, "ids": list(ids)}
+            "labels": {i: dep.label(i) for i in dep.devices}, "roles": {i: dep.role(i) for i in dep.devices},
+            "ids": list(ids)}
 
 
 # ── base visits ─────────────────────────────────────────────────────────────────
@@ -398,8 +399,24 @@ def proximity_matrix(dep, *, min_rssi: float = -90, metric: str = "rate", device
     if len(data) and data.rate.notna().any():
         hi = data.loc[data.rate.idxmax()]
         summary = {"strongest_pair": f"{hi.observer_label} hears {hi.peer_label}", "strongest_rate": float(hi.rate)}
+    # The cell to point at is the strongest link between a mobile and a base (in the chosen metric): that is the
+    # one that says where a worn tag was. Base-to-base and mobile-to-mobile cells are context.
+    if len(data):
+        roles = {i: dep.role(i) for i in ids}
+        one_each = np.array([{roles[o], roles[q]} == {"mobile", "base"} for o, q in zip(data.observer, data.peer)])
+        cand = data[one_each & data[metric].notna().to_numpy()]
+        if len(cand):
+            best = cand.loc[cand[metric].idxmax()]
+            summary.update({"best_pair": f"{best.observer_label} hears {best.peer_label}",
+                            "best_observer": best.observer, "best_peer": best.peer,
+                            "best_value": float(best[metric]), "best_metric": metric})
     notes = [RSSI_NOTE, "Rows listen, columns are heard. A low rate can mean far apart, shielded, or simply that "
              "the two tags' short scan and advertise bursts rarely overlapped."]
+    if any(dep.role(i) == "mobile" for i in ids) and sum(dep.role(i) == "base" for i in ids) > 1:
+        notes.append("Cells between two base stations are drawn in grey: they show how the house hangs together, "
+                     "but the mobiles are the question.")
+    if "best_pair" in summary:
+        notes.append("The outlined cell is the strongest link between a mobile and a base station in the chosen measure.")
     params = {"min_rssi": min_rssi, "metric": metric}
     return Result("proximity_matrix", data, params, {"n_observations": int(data.detections.sum()) if len(data) else 0},
                   summary, {}, notes, _fig_matrix, _ctx(dep, ids))
@@ -415,16 +432,161 @@ def _fig_matrix(r: Result, theme: str) -> dict:
     for row in r.data.itertuples(index=False):
         z[ix[row.observer], ix[row.peer]] = getattr(row, col)
     pct = col == "rate"
-    text = [["" if np.isnan(v) else (f"{v:.0%}" if pct else f"{v:.0f}") for v in row] for row in z]
-    heat = {"type": "heatmap", "x": labels, "y": labels, "z": z.tolist(), "text": text, "texttemplate": "%{text}",
-            "colorscale": t["scale"] if pct else [[0, t["scale"][3][1]], [1, t["scale"][0][1]]],
-            "hoverongaps": False, "zmin": 0 if pct else None,
-            "colorbar": {"title": {"text": "heard" if pct else "dBm"}, "tickformat": ".0%" if pct else None,
-                         "thickness": 12, "outlinewidth": 0},
-            "hovertemplate": "%{y} hears %{x}<br>" + ("%{z:.0%}" if pct else "%{z:.0f} dBm") + "<extra></extra>"}
-    if not pct:
-        heat.pop("zmin")
-    return {"data": [heat], "layout": F.layout(
-        theme, height=60 * len(ids) + 130, margin={"l": 100, "r": 24, "t": 30, "b": 80},
+    # Brighter always means more: a higher share heard, or a stronger (less negative) signal. Cells with a
+    # mobile on either side keep the colour scale; base-to-base cells use the same values in grey.
+    mob = np.array([ctx["roles"][i] == "mobile" for i in ids])
+    keep = (mob[:, None] | mob[None, :]) if mob.any() else np.ones((len(ids), len(ids)), dtype=bool)
+    finite = z[np.isfinite(z)]
+    if pct:
+        zmin, zmax = 0.0, (float(finite.max()) if len(finite) and finite.max() > 0 else 1.0)
+    else:
+        zmin, zmax = (float(finite.min()), float(finite.max())) if len(finite) else (-100.0, -40.0)
+        if zmax <= zmin:
+            zmax = zmin + 1.0
+    hover = "%{y} hears %{x}<br>" + ("%{z:.0%}" if pct else "%{z:.0f} dBm") + "<extra></extra>"
+
+    def layer(mask: np.ndarray, **over) -> dict:
+        zz = np.where(mask, z, np.nan)
+        text = [["" if np.isnan(v) else (f"{v:.0%}" if pct else f"{v:.0f}") for v in row] for row in zz]
+        return {"type": "heatmap", "x": labels, "y": labels, "z": zz.tolist(), "text": text,
+                "texttemplate": "%{text}", "hoverongaps": False, "zmin": zmin, "zmax": zmax,
+                "hovertemplate": hover, **over}
+
+    data = []
+    if not keep.all():
+        data.append(layer(~keep, colorscale=t["gray"], showscale=False))
+    data.append(layer(keep, colorscale=t["scale"],
+                      colorbar={"title": {"text": "heard" if pct else "dBm"}, "tickformat": ".0%" if pct else None,
+                                "thickness": 12, "outlinewidth": 0}))
+    shapes = []
+    s = r.summary
+    if "best_pair" in s:  # category axes take index positions, so a cell is [k - 0.5, k + 0.5]
+        i, j = ix[s["best_observer"]], ix[s["best_peer"]]
+        shapes.append({"type": "rect", "xref": "x", "yref": "y", "x0": j - 0.5, "x1": j + 0.5, "y0": i - 0.5,
+                       "y1": i + 0.5, "fillcolor": "rgba(0,0,0,0)", "layer": "above",
+                       "line": {"color": t["line"], "width": 3}})
+    return {"data": data, "layout": F.layout(
+        theme, height=60 * len(ids) + 130, margin={"l": 100, "r": 24, "t": 30, "b": 80}, shapes=shapes,
         xaxis=F.axis(theme, side="bottom", title={"text": "Heard"}, showgrid=False),
         yaxis=F.axis(theme, autorange="reversed", title={"text": "Listener"}, showgrid=False))}
+
+
+# ── one tag and what it heard ───────────────────────────────────────────────────
+
+NETWORK_MAX_PEERS = 40
+NETWORK_RSSI_NEAR, NETWORK_RSSI_FAR = -50.0, -95.0   # inner and outer ring
+NETWORK_COLOR_MIN, NETWORK_COLOR_MAX = -95.0, -55.0  # same limits as the plotter's peer colours
+
+
+def proximity_network(dep, center, *, min_rssi: float = -90, devices=None) -> Result:
+    """One tag at the centre and every other tag it heard around it: the matrix's row, drawn as a graph.
+
+    Same numbers as one row of :func:`proximity_matrix`: ``rate`` is the share of the centre tag's scan bursts,
+    while both were recording, in which that peer was heard at or above ``min_rssi``, and ``median_rssi`` is the
+    median of those sightings. Distance from the centre and colour show the median signal (nearer and warmer is
+    stronger); edge width and node size show the share of scans. Tags that were not heard are listed in
+    ``data`` with zero detections and left off the figure. Only what ``center`` heard is drawn: for the other
+    direction, make the peer the centre.
+    """
+    c = dep.device(center).id
+    ids = list(dep.resolve_ids(devices)) if devices is not None else dep.mobiles + dep.bases
+    if c not in ids:
+        ids.append(c)
+    m = proximity_matrix(dep, min_rssi=min_rssi, metric="rate", devices=ids)
+    data = m.data[m.data.observer == c].copy()
+    data["role"] = [dep.role(q) for q in data.peer]
+    data = data.sort_values(["rate", "detections", "peer_label"], ascending=[False, False, True],
+                            na_position="last").reset_index(drop=True)
+    heard = data[data.detections > 0]
+    role = dep.role(c)
+    other = "base" if role == "mobile" else "mobile"
+    summary = {"center": c, "center_label": dep.label(c), "center_role": role,
+               "n_peers": int(len(data)), "n_heard": int(len(heard))}
+    # As in the matrix, the link worth naming joins a mobile to a base.
+    cand = heard[heard.role == other]
+    if len(cand):
+        best = cand.iloc[0]  # sorted by share of scans
+        summary.update({"best_pair": f"{best.observer_label} hears {best.peer_label}", "best_observer": best.observer,
+                        "best_peer": best.peer, "best_peer_label": best.peer_label, "best_value": float(best.rate),
+                        "best_metric": "rate", "best_detections": int(best.detections),
+                        "best_median_rssi": float(best.median_rssi)})
+    notes = [RSSI_NOTE, "Only what the centre tag heard is drawn. A peer's own view of the centre can differ: "
+             "make that peer the centre to see it."]
+    if len(heard) > NETWORK_MAX_PEERS:
+        notes.append(f"Showing the {NETWORK_MAX_PEERS} peers heard most often of {len(heard)}.")
+    silent = data[data.detections == 0].peer_label.tolist()
+    if silent:
+        notes.append("Not heard at this threshold: " + ", ".join(silent) + ".")
+    if "best_pair" in summary:
+        notes.append(f"The outlined peer is the strongest link between the centre and a {other}, by share of scans.")
+    return Result("proximity_network", data, {"center": c, "min_rssi": min_rssi}, {"n_observations": int(data.detections.sum())},
+                  summary, {}, notes, _fig_network, _ctx(dep, ids))
+
+
+def _network_radius(rssi: float) -> float:
+    span = NETWORK_RSSI_NEAR - NETWORK_RSSI_FAR
+    return 1.0 + 2.0 * min(1.0, max(0.0, (NETWORK_RSSI_NEAR - rssi) / span))
+
+
+def _label_position(angle: float) -> str:
+    c, s = np.cos(angle), np.sin(angle)
+    if c > 0.35:
+        return "middle right"
+    if c < -0.35:
+        return "middle left"
+    return "top center" if s > 0 else "bottom center"
+
+
+def _fig_network(r: Result, theme: str) -> dict:
+    ctx, p, t, s = r._context, r.parameters, F.theme_of(theme), r.summary
+    heard = r.data[r.data.detections > 0].head(NETWORK_MAX_PEERS).reset_index(drop=True)
+    plain = {"visible": False, "fixedrange": True}
+    if not len(heard):
+        return F.empty_figure(theme, f"{s['center_label']} heard no other tag at or above {p['min_rssi']:.0f} dBm")
+    n = len(heard)
+    top = float(heard.rate.max()) or 1.0
+    step = 2 * np.pi / n
+    ang = np.pi / 2 - np.arange(n) * step                 # clockwise from the top, most-heard first
+    rad = np.array([_network_radius(v) for v in heard.median_rssi])
+    x, y = rad * np.cos(ang), rad * np.sin(ang)
+    size = 14 + 22 * np.sqrt(heard.rate.to_numpy() / top)
+    span = NETWORK_COLOR_MAX - NETWORK_COLOR_MIN
+
+    data = [{"type": "scatter", "mode": "lines", "x": [0, float(x[k])], "y": [0, float(y[k])], "hoverinfo": "skip",
+             "showlegend": False, "opacity": 0.8,
+             "line": {"width": 1.5 + 8 * float(np.sqrt(heard.rate[k] / top)),
+                      "color": F.scale_color(t["scale"], (heard.median_rssi[k] - NETWORK_COLOR_MIN) / span)}}
+            for k in range(n)]
+    best = [q == s.get("best_peer") for q in heard.peer]
+    hover = [f"{row.peer_label} ({row.role})<br>heard in {row.rate:.0%} of {s['center_label']}'s scans"
+             f"<br>{row.detections} sighting{'' if row.detections == 1 else 's'}, median {row.median_rssi:.0f} dBm"
+             for row in heard.itertuples(index=False)]
+    data.append({"type": "scatter", "mode": "markers+text", "x": x.tolist(), "y": y.tolist(),
+                 "text": [f"{a} ({b:.0%})" for a, b in zip(heard.peer_label, heard.rate)],
+                 "textposition": [_label_position(a) for a in ang], "textfont": {"size": 11, "color": t["text"]},
+                 "hovertext": hover, "hoverinfo": "text", "showlegend": False,
+                 "marker": {"size": size.tolist(), "symbol": ["diamond" if q == "mobile" else "circle" for q in heard.role],
+                            "color": heard.median_rssi.tolist(), "colorscale": t["scale"], "cmin": NETWORK_COLOR_MIN,
+                            "cmax": NETWORK_COLOR_MAX, "opacity": 1, "showscale": True,
+                            "colorbar": {"title": {"text": "median signal (dBm)", "side": "top"}, "orientation": "h", "thickness": 10,
+                                         "len": 0.5, "x": 0.5, "xanchor": "center", "y": -0.02, "yanchor": "top",
+                                         "outlinewidth": 0},
+                            "line": {"color": t["line"], "width": [3.5 if b else 1.2 for b in best]}}})
+    data.append({"type": "scatter", "mode": "markers+text", "x": [0], "y": [0], "text": [s["center_label"]],
+                 "textposition": "bottom center", "textfont": {"size": 12, "color": t["text"]}, "showlegend": False,
+                 "hovertext": [f"{s['center_label']} ({s['center_role']})<br>heard {s['n_heard']} of {s['n_peers']} tags"],
+                 "hoverinfo": "text",
+                 "marker": {"size": 38, "color": "#FFFFFF", "opacity": 1, "line": {"color": "#8B5CF6", "width": 4}}})
+
+    rings = (1.0, 2.0, 3.0)
+    shapes = [{"type": "circle", "xref": "x", "yref": "y", "x0": -q, "x1": q, "y0": -q, "y1": q, "layer": "below",
+               "line": {"color": t["grid"], "width": 1, "dash": "dot"}} for q in rings]
+    at = np.pi / 2 - step / 2                             # between two nodes
+    notes = [{"x": q * float(np.cos(at)), "y": q * float(np.sin(at)), "xref": "x", "yref": "y", "showarrow": False,
+              "text": f"{NETWORK_RSSI_NEAR - (q - 1) / 2 * (NETWORK_RSSI_NEAR - NETWORK_RSSI_FAR):.0f} dBm",
+              "font": {"size": 9, "color": t["muted"]}} for q in rings]
+    # Wider than tall: labels sit beside the nodes, and the colour bar goes underneath.
+    return {"data": data, "layout": F.layout(
+        theme, height=540, margin={"l": 20, "r": 20, "t": 10, "b": 70}, shapes=shapes, annotations=notes, showlegend=False,
+        xaxis={**plain, "range": [-5.8, 5.8]},
+        yaxis={**plain, "range": [-3.9, 3.9], "scaleanchor": "x", "scaleratio": 1})}

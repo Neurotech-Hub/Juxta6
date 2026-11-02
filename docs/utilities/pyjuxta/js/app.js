@@ -88,7 +88,7 @@
       const { def } = sec;
       const root = el("section", { class: "step card", id: `step-${def.id}` });
       root.innerHTML = `
-        <header class="step-head"><span class="step-n">${sec.n}</span><h2>${def.title}</h2></header>
+        <header class="step-head"><span class="step-n">${sec.n}</span><span class="step-title"><h2>${def.title}</h2>${anchorButton(`step-${def.id}`)}</span></header>
         <p class="question">${def.question}</p>
         <div class="settings"><div class="settings-main"></div><details class="adv" hidden><summary>More settings</summary><div class="settings-adv"></div></details></div>
         <p class="try"><b>Try this.</b> ${def.tryThis}</p>
@@ -123,6 +123,7 @@
     main.innerHTML = "";
     adv.innerHTML = "";
     sec.touched = sec.touched || {};
+    sec.conditional = [];
     for (const c of sec.def.controls) {
       const wrap = el("div", { class: "ctl" + (c.type === "devices" ? " wide" : "") });
       const help = c.help ? `<small>${c.help}</small>` : "";
@@ -171,16 +172,25 @@
         }
       }
       (c.adv ? adv : main).appendChild(wrap);
+      if (c.show) sec.conditional.push({ c, wrap });
     }
+    applyConditional(sec);
     $("details.adv", sec.root).hidden = adv.children.length === 0;
+    $(".settings", sec.root).hidden = sec.def.controls.length === 0;
   }
   const $$all = (chips) => Array.from(chips.querySelectorAll("input"));
   function poolOf(pool) {
     return pool === "mobiles" ? S.mobiles : pool === "bases" ? S.bases : S.ids;
   }
 
+  // A control with `show(p)` appears only while that holds (the matrix step's centre tag, for instance).
+  function applyConditional(sec) {
+    for (const { c, wrap } of sec.conditional) wrap.hidden = !c.show(sec.p);
+  }
+
   function changed(sec, c, value) {
     sec.p[c.id] = value;
+    applyConditional(sec);
     schedule(sec, 120);
   }
 
@@ -423,10 +433,53 @@
     });
   }
 
+  /* The example loads on its own, so the data card only reports what is loaded and offers the way out. */
+  function setDataStatus(busy) {
+    const badge = $("#data-badge"), download = $("#btn-download"), again = $("#btn-example-again");
+    const have = S.devices.length > 0;
+    if (busy) {
+      badge.textContent = "Loading data…";
+      badge.dataset.state = "busy";
+    } else if (!have) {
+      badge.textContent = "No data loaded";
+      badge.dataset.state = "none";
+    } else {
+      badge.textContent = S.isExample ? "Experimental data loaded" : "Your data loaded";
+      badge.dataset.state = "ready";
+    }
+    download.hidden = !(have && S.isExample);
+    download.disabled = busy;
+    again.hidden = !(have && !S.isExample);
+    again.disabled = busy;
+  }
+
+  function showOwnData(show) {
+    $("#own-data").hidden = !show;
+    $("#btn-own").setAttribute("aria-expanded", String(show));
+  }
+
+  async function downloadExample() {
+    const btn = $("#btn-download");
+    btn.disabled = true;
+    try {
+      const bytes = await PyRuntime.zipData("pyjuxta-example-deployment");
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+      const a = el("a", { href: url, download: "pyjuxta-example-deployment.zip" });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      setLoadMsg(`Could not prepare the download: ${err.message}`, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   async function loadWith(label, loader, isExample) {
     const hadData = S.devices.length > 0;
     S.ready = false;
-    $("#btn-example").disabled = true;
+    setDataStatus(true);
     setStatus("Loading data…");
     setLoadMsg("Loading…", "busy");
     try {
@@ -445,13 +498,14 @@
       if (isExample) await PyRuntime.run(`dep.set_labels(${JSON.stringify(EXAMPLE.labels)})`);
       await applyDeployment();
       setLoadMsg("");
+      if (!isExample) showOwnData(false);
     } catch (err) {
       S.ready = hadData;
       setLoadMsg(err.message, "error");
       if (!hadData) secs.forEach((s) => showPlaceholder(s, "Load a deployment above to run this step.", "info"));
     } finally {
       setStatus(S.version ? `pyJuxta ${S.version} ready` : "Python failed to start", S.version ? "ready" : "error");
-      $("#btn-example").disabled = false;
+      setDataStatus(false);
     }
   }
 
@@ -485,7 +539,12 @@
   }
 
   function wirePickers() {
-    $("#btn-example").addEventListener("click", loadExample);
+    $("#btn-download").addEventListener("click", downloadExample);
+    $("#btn-example-again").addEventListener("click", () => {
+      showOwnData(false);
+      loadExample();
+    });
+    $("#btn-own").addEventListener("click", () => showOwnData($("#own-data").hidden));
     $("#btn-folder").addEventListener("click", () => $("#file-folder").click());
     $("#btn-files").addEventListener("click", () => $("#file-files").click());
     $("#file-folder").addEventListener("change", (e) => {
@@ -511,6 +570,40 @@
   }
 
   /* ------------------------------------------------------------------- misc UI */
+  const ANCHOR_ICON = `<svg class="link" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><svg class="check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"/></svg>`;
+
+  function anchorButton(anchor) {
+    return `<button class="anchor-link" type="button" data-anchor="${anchor}" aria-label="Copy link to this section" title="Copy link">${ANCHOR_ICON}</button>`;
+  }
+
+  function sectionUrl(anchor) {
+    const url = new URL(location.href);
+    url.hash = anchor;
+    return url.href;
+  }
+
+  async function copyAnchor(btn) {
+    try {
+      await navigator.clipboard.writeText(sectionUrl(btn.dataset.anchor));
+      btn.classList.add("copied");
+      btn.setAttribute("aria-label", "Link copied");
+      clearTimeout(btn._copied);
+      btn._copied = setTimeout(() => {
+        btn.classList.remove("copied");
+        btn.setAttribute("aria-label", "Copy link to this section");
+      }, 1400);
+    } catch (e) {
+      btn.setAttribute("aria-label", "Could not copy the link");
+    }
+  }
+
+  function wireAnchors() {
+    for (const btn of document.querySelectorAll(".anchor-link")) {
+      if (!btn.querySelector("svg")) btn.innerHTML = ANCHOR_ICON;
+      btn.addEventListener("click", () => copyAnchor(btn));
+    }
+  }
+
   async function copyText(text, btn) {
     try {
       await navigator.clipboard.writeText(text);
@@ -582,10 +675,11 @@
     buildSteps();
     wirePickers();
     wireCopy();
+    wireAnchors();
     buildTz();
     observe();
     secs.forEach((s) => showPlaceholder(s, "Starting Python and loading the example data…", "info"));
-    $("#btn-example").disabled = true;
+    setDataStatus(true);
     try {
       const info = await PyRuntime.start((t) => setStatus(t));
       S.version = info.version;
@@ -595,9 +689,9 @@
       const msg = `Could not start Python in this browser (${err.message}). The walkthrough needs to download Pyodide from a CDN; check your connection and reload.`;
       setLoadMsg(msg, "error");
       secs.forEach((s) => showPlaceholder(s, msg, "error"));
+      setDataStatus(false);
       return;
     }
-    $("#btn-example").disabled = false;
     await loadExample();
   }
 
