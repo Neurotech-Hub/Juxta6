@@ -1272,6 +1272,7 @@ class BLEManager: NSObject, ObservableObject {
         guard let next = packageQueue.first else {
             let total = appState.transferTotalFiles
             appState.log("✓ Package transfer complete (\(total) file\(total == 1 ? "" : "s"))")
+            appState.selectedPackageDates = []
             cancelPackageTransfer()
             return
         }
@@ -1633,8 +1634,33 @@ extension BLEManager: CBPeripheralDelegate {
             self.appState.availablePackages = packages
             let validKeys = Set(packages.map { $0.dateKey })
             self.appState.selectedPackageDates = self.appState.selectedPackageDates.intersection(validKeys)
+            let already = Set(packages.compactMap { pkg -> String? in
+                let names = Array(pkg.files.keys)
+                return self.localBytesMatch(deviceID: connectedDeviceID, dateKey: pkg.dateKey, names: names, sizes: sizes)
+                    ? pkg.dateKey : nil
+            })
+            self.appState.transferredDateKeys = already
             self.appState.log("File listing: \(namesInListing.count) name(s), \(jxCsvCount) JX*.csv in package format → \(packages.count) daily package(s) on device")
+            if !already.isEmpty {
+                self.appState.log("\(already.count) day(s) already match a package on this phone")
+            }
         }
+    }
+
+    /// A non-archived local package whose files are the same size as the tag's listing is already current.
+    /// Tag files only grow, and each day has its own names, so equal size means the phone has that day.
+    private func localBytesMatch(deviceID: String, dateKey: String, names: [String], sizes: [String: Int]) -> Bool {
+        guard !names.isEmpty,
+              let local = packageStore.packages.first(where: { $0.deviceID == deviceID && $0.dateKey == dateKey }),
+              !packageStore.isArchived(local) else { return false }
+        let fm = FileManager.default
+        for name in names {
+            guard let expected = sizes[name],
+                  let url = local.files[name],
+                  let bytes = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
+                  bytes.intValue == expected else { return false }
+        }
+        return true
     }
 
     /// Handles UTF-8 payloads on the filename characteristic (chunked listing + `NFF`).
