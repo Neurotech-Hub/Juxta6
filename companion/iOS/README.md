@@ -1,6 +1,6 @@
 # Juxta6 (iOS companion)
 
-iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.6.0**, schema **`jxta-nor-csv-v10`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
+iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.6.1**, schema **`jxta-nor-csv-v10`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
 
 Open **`Juxta6.xcodeproj`**, scheme **Juxta6**, on a physical iPhone (BLE is not available in the Simulator).
 
@@ -13,7 +13,7 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 - iOS 17.0+
 - Xcode 15.0+
 - Physical Bluetooth-enabled iPhone
-- Tag running Juxta6 firmware **6.x** (current: `6.6.0`)
+- Tag running Juxta6 firmware **6.x** (current: `6.6.1`)
 - Location When In Use (optional) — used for gateway lat/lon; Open-Meteo outdoor °C is display-only on the clock
 
 ## Features
@@ -69,7 +69,7 @@ See [`spec_HUBLINK.md`](spec_HUBLINK.md). UUIDs match `juxta6-0-prod`.
 
 ```json
 {
-  "firmwareVersion": "6.6.0",
+  "firmwareVersion": "6.6.1",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
@@ -95,7 +95,7 @@ UTC `timestamp`, `sendFilenames`, optional `latitude` / `longitude`, settings fi
 
 ## Firmware update (DFU)
 
-Firmware OTA uses Nordic **nRF Device Manager** (not this companion). From shelf (white chirp every 5 s), hold **BTN1 ≥10 s** until fast blue blink; connect in Device Manager and upload the app image. Confirmed **≥3 s** hold returns to shelf. See [`applications/juxta6-0-prod/README.md`](../../applications/juxta6-0-prod/README.md).
+Firmware OTA uses Nordic **nRF Device Manager** (not this companion). From shelf (white chirp every 5 s), hold **BTN1 ≥10 s** — at 10 s the Tag enters DFU in place (3× green → fast blue). Connect in Device Manager and upload the app image. Leave DFU with a **≥3 s** hold (LED off at commit) then release. See [`applications/juxta6-0-prod/README.md`](../../applications/juxta6-0-prod/README.md).
 
 ## License
 

@@ -5,7 +5,7 @@ dual-antenna advertising RSSI / ADXL motion + BME688 T/RH + TEMT6200 lux + VDD v
 **MX25L3233 NOR CSV** / **MCUboot SMP BLE DFU** (nRF Device Manager).
 
 External flash is Macronix **MX25L3233FZBI-08G-TR** (32 Mbit / 4 MiB) on Tag U8
-SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v10`** (firmware **6.6.0**):
+SPI (`P2.01/02/04`, CS `P2.05`). Schema **`jxta-nor-csv-v10`** (firmware **6.6.1**):
 
 | File | Columns |
 |------|---------|
@@ -47,9 +47,10 @@ lengthened to validate reseat hypothesis). ADXL / BME / BMI / SPI NOR are
 
 **Shelf mode** stays awake (no System OFF): radio and motion stop, then a
 **~20 ms white LED chirp every 5 s** so the Tag is visibly waiting for a
-connection. A valid BTN1 hold (≥3 s sync, ≥10 s DFU) soft-reboots into the
-normal sync/DFU path via a `__noinit` wake handoff. Entry cue chirp covers cold
-boot→shelf, prod magnet escape, gateway reset, and DFU exit.
+connection. A valid BTN1 hold of 3–10 s soft-reboots into sync via a `__noinit`
+wake handoff after the button is released. A hold of ≥10 s enters DFU in place
+immediately (3× green → fast blue — that cue marks the 10 s threshold). Entry
+cue chirp covers cold boot→shelf, prod magnet escape, gateway reset, and DFU exit.
 
 A hardware **watchdog** (`wdt31`, 60 s) arms after bring-up and is fed from all
 long-lived loops (paused while halted by the debugger). Fatal errors reboot
@@ -109,20 +110,24 @@ Writes `dist/juxta6-0-prod-<version>.zip` from `JUXTA_FIRMWARE_VERSION` in
 [`src/juxta_prod.h`](src/juxta_prod.h). Bump that string before exporting a new
 image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
 
-1. From shelf, hold **BTN1 ≥10 s** (LED off at 3 s commit cue). Battery must be
+1. From shelf, hold **BTN1 ≥10 s** (red LED on, then off at 3 s commit cue —
+   keep holding through the dark period). At 10 s the tag enters DFU in place:
+   3× green → fast blue (that is the cue that 10 s passed). Battery must be
    ≥2700 mV or the wake falls through to normal sync.
-2. Tag: 3× blink → fast blue blink; advertises SMP UUID as `JX_XXXXXX`.
+2. Release whenever convenient; advertising SMP UUID as `JX_XXXXXX`.
 3. Open **nRF Device Manager**, connect, upload `dist/juxta6-0-prod-<version>.zip`.
    MCUboot swaps slots on reset.
-4. Hold **BTN1 ≥3 s** to leave DFU → shelf (white chirps every 5 s).
+4. Hold **BTN1 ≥3 s** to leave: blue blink until 3 s, then LED off (committed).
+   Release to return to shelf (white chirps every 5 s).
 
 ## Companion flow
 
 1. Power on → device shelves (white chirp ~20 ms every 5 s).
-2. Hold **BTN1** 3–10 s → soft reboot → slow green blink, connectable Hublink
-   advertising (`JX_*` / `JB_*` via `bt_set_name` + scan response; Hublink UUID in ADV).
+2. Hold **BTN1** 3–10 s, then release → soft reboot → slow green blink, connectable
+   Hublink advertising (`JX_*` / `JB_*` via `bt_set_name` + scan response; Hublink UUID in ADV).
+   Hold ≥10 s for DFU (fast blue starts at the threshold; release when ready).
 3. Connect; peripheral negotiates **MTU 247**. Read **Node** (`firmwareVersion`
-   `6.6.0`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
+   `6.6.1`, `isBaseStation`, `memoryLevel` from NOR fill, refreshed at vitals
    cadence); write **Gateway** JSON with `"timestamp": <unix>` plus optional
    `latitude` / `longitude` (and optional settings including `isBaseStation`).
    Open-Meteo outdoor temp is display-only on the phone — not sent to the tag.
@@ -140,7 +145,13 @@ image. Commit `dist/` when you want to share the zip; `build/` stays gitignored.
    data past a gap is always removed. While erasing, LIST returns `EOF` and
    file requests are refused.
 
-iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.6.0` / schema v10).
+iOS companion: [companion/iOS](../../companion/iOS) (`Juxta6.xcodeproj`, firmware `6.6.1` / schema v10).
+
+## 6.6.1 Shelf / DFU hold
+
+DFU enters in place at the 10 s hold threshold (3× green → fast blue; no soft reboot).
+Exit: hold ≥3 s (LED off at commit) and release. Sync wake (3–10 s) still soft-reboots
+after release. SMP GATT is registered once at boot — do not call `smp_bt_register()` again.
 
 ## 6.6.0 Light vitals
 

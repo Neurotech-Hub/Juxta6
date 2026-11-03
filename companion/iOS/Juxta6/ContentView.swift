@@ -4106,8 +4106,8 @@ private struct ButtonGestureRow: Identifiable {
         ),
         ButtonGestureRow(
             gesture: "Press while in shelf mode",
-            ledFeedback: "LED ON immediately",
-            effect: "Starts hold timing; release after the commit cue to leave shelf"
+            ledFeedback: "Red LED ON immediately",
+            effect: "Starts hold timing; LED off at 3 s is the commit cue (keep holding for DFU)"
         ),
         ButtonGestureRow(
             gesture: "Release < 3 s while in shelf",
@@ -4116,13 +4116,13 @@ private struct ButtonGestureRow: Identifiable {
         ),
         ButtonGestureRow(
             gesture: "Release 3 s ≤ t < 10 s while in shelf",
-            ledFeedback: "LED off at 3 s → soft reboot → slow blink (50/450 ms)",
-            effect: "Connectable advertising; waits for time sync. JXS shelf_exit, user_connected, time_set deferred until sync"
+            ledFeedback: "LED off at 3 s → release → soft reboot → slow green blink (50/450 ms)",
+            effect: "Sync wake: connectable advertising; waits for time sync. JXS shelf_exit, user_connected, time_set deferred until sync"
         ),
         ButtonGestureRow(
             gesture: "Hold ≥ 10 s while in shelf",
-            ledFeedback: "LED off at 3 s → soft reboot → 3× blink → fast blink (50/50 ms)",
-            effect: "DFU mode; confirmed 3 s hold returns to shelf after 5 s debounce"
+            ledFeedback: "LED off at 3 s → at 10 s: 3× green → fast blue (50/50 ms)",
+            effect: "DFU in place (no reboot). Release when ready; advertising SMP for nRF Device Manager"
         ),
         ButtonGestureRow(
             gesture: "Any connect event",
@@ -4141,13 +4141,13 @@ private struct ButtonGestureRow: Identifiable {
         ),
         ButtonGestureRow(
             gesture: "Brief press during DFU fast-blink (< 3 s)",
-            ledFeedback: "None",
+            ledFeedback: "Fast blue continues",
             effect: "False positive — stays in DFU"
         ),
         ButtonGestureRow(
-            gesture: "Confirmed hold ≥ 3 s during DFU",
-            ledFeedback: "LED off",
-            effect: "Returns device to shelf mode"
+            gesture: "Hold ≥ 3 s during DFU, then release",
+            ledFeedback: "Fast blue until 3 s → LED off (committed) → release",
+            effect: "Returns to shelf (white chirps) only after release"
         ),
         ButtonGestureRow(
             gesture: "Brief press during production (< 3 s)",
@@ -4170,12 +4170,12 @@ private struct ButtonGestureRow: Identifiable {
 struct InfoAboutView: View {
     private static let quickStartSteps: [String] = [
         "Shelf mode is the default after boot or a companion Reset: radio off, white LED chirps ~20 ms every 5 s so you can tell the Tag still needs a connection.",
-        "Hold the button ~3 s to leave shelf: LED solid ON on press, off at 3 s as a \"release now\" cue, then a soft reboot into sync (slow blink 50 ms on / 450 ms off). Holds under 3 s are false positives and chirps resume.",
+        "Hold the button ~3 s to leave shelf for sync: red LED ON on press, off at 3 s as a commit cue, then release — soft reboot into sync (slow green blink 50 ms on / 450 ms off). Holds under 3 s are false positives and chirps resume.",
         "In Juxta6, scan and connect. The LED stays solid ON for the duration of the BLE connection.",
         "Time sync runs automatically; device settings populate the app. Tap Edit to change them, then Push to send changes back. Mobile Tag (default) advertises as JX_*; Base Station as JB_* — changing role clears on-device memory.",
         "Disconnect to enter production: 5× blink, LED off, then vitals/logging run with LED off throughout.",
         "Return to shelf during production with a ~3 s button hold: solid ON → off at 3 s → 5× blink → grace period → shelf chirps resume. A shelf_entry row is written to JXS.",
-        "Hold ≥ 10 s only to enter DFU: LED off at 3 s, then soft reboot into 3× blink and fast blink. Release between 3 s and 10 s if you only want sync, not firmware update.",
+        "Hold ≥ 10 s only to enter DFU: LED off at 3 s; at 10 s the Tag enters DFU in place (3× green → fast blue — that cue means the threshold was reached). Release between 3 s and 10 s if you only want sync. To leave DFU, hold ≥ 3 s (LED off at commit) then release.",
         "For a full device reset, reseat or replace the battery (coin cell)."
     ]
 
@@ -4222,7 +4222,7 @@ struct InfoAboutView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Button gestures & LED feedback")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("In shelf mode the white LED chirps ~20 ms every 5 s until a valid hold. Every button gesture requires a confirmed 3 s minimum hold; shorter presses are false positives. At 3 s the LED turns off as a \"release now\" commit cue on shelf wake and production paths. DFU requires a 10 s hold. A full device reset is performed by reseating or replacing the battery.")
+                    Text("In shelf mode the white LED chirps ~20 ms every 5 s until a valid hold. Every button gesture requires a confirmed 3 s minimum hold; shorter presses are false positives. At 3 s the LED turns off as a commit cue on shelf wake, DFU exit, and production paths — for sync wake, release after that cue; for DFU entry, keep holding until fast blue starts at 10 s. A full device reset is performed by reseating or replacing the battery.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -4280,13 +4280,13 @@ struct InfoAboutView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Firmware update (DFU)")
                         .font(.system(size: 13, weight: .semibold))
-                    (Text("DFU mode is entered with a ≥ 10 s button hold (see gestures above). Once in DFU, use Nordic Semiconductor's ")
+                    (Text("DFU mode starts in place at a ≥ 10 s button hold (3× green → fast blue; see gestures above). Once in DFU, use Nordic Semiconductor's ")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                      + Text("nRF Device Manager")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.secondary)
-                     + Text(" app to upload the firmware image. Image files are supplied by the developer.")
+                     + Text(" app to upload the firmware image. Leave DFU with a ≥ 3 s hold (LED off at commit) then release. Image files are supplied by the developer.")
                         .font(.system(size: 13))
                         .foregroundColor(.secondary))
                     .fixedSize(horizontal: false, vertical: true)

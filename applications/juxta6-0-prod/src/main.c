@@ -1,7 +1,7 @@
 /*
  * juxta6-0-prod: Juxta-style shelf / Hublink sync / dual-antenna RSSI /
  * MX25L3233 NOR CSV (JXS/JXV/JXB) with RTT mirrors. MCUboot SMP BLE DFU
- * (≥10 s magnet). No Channel Sounding.
+ * (≥10 s magnet hold, entered in place at the threshold). No Channel Sounding.
  */
 
 #include <errno.h>
@@ -322,6 +322,7 @@ static __noinit uint32_t shelf_wake_magic;
 static __noinit int shelf_wake_held_ms;
 
 static int magnet_wait_hold(void);
+static void run_dfu_mode(void);
 
 static void init_reboot_state_reset(void)
 {
@@ -437,6 +438,14 @@ static void blink_n(uint8_t n)
 	}
 }
 
+static void button_wait_release(void)
+{
+	while (gpio_pin_get_dt(&button) > 0) {
+		prod_wdt_feed();
+		k_sleep(K_MSEC(20));
+	}
+}
+
 static void enter_shelf(const char *reason)
 {
 	uint32_t now = juxta_time_now();
@@ -472,13 +481,42 @@ static void enter_shelf(const char *reason)
 			continue;
 		}
 
+		if (held_ms >= (int)DFU_HOLD_THRESHOLD_MS) {
+			int32_t batt_mv = juxta_vdd_read_mv();
+
+			if (batt_mv > 0 && batt_mv < BATT_DFU_MIN_MV) {
+				LOG_WRN("Battery too low for DFU (%d mV < %d mV) — normal sync wake",
+					(int)batt_mv, BATT_DFU_MIN_MV);
+			} else {
+				/*
+				 * Enter DFU immediately at 10 s (button may still be
+				 * down): the 3× green → fast blue cue is what tells
+				 * the user the threshold was reached. run_dfu_mode()
+				 * waits for that wake release before arming exit.
+				 */
+				LOG_INF("Shelf wake hold_ms=%d — entering DFU", held_ms);
+				run_dfu_mode();
+				juxta_rtt_jxs("shelf_entry");
+				atomic_set(&app_mode, JUXTA_OP_MODE_SHELF);
+				juxta_ble_disconnect();
+				leds_off();
+				(void)bt_le_adv_stop();
+				(void)bt_le_scan_stop();
+				juxta_motion_stop();
+				led_boot_chirp();
+				continue;
+			}
+		}
+
 		/*
-		 * Persist the hold across a cold reboot so main() can run the
-		 * normal sync/DFU path without nesting those modes inside shelf.
+		 * Sync wake: release first so the reboot handoff does not see a
+		 * stuck press, then persist across cold reboot into main().
 		 */
+		LOG_INF("Shelf wake hold_ms=%d — waiting for release before sync", held_ms);
+		button_wait_release();
 		shelf_wake_held_ms = held_ms;
 		shelf_wake_magic = SHELF_WAKE_MAGIC;
-		LOG_INF("Shelf wake hold_ms=%d — reboot into sync/DFU", held_ms);
+		LOG_INF("Shelf wake hold_ms=%d — reboot into sync", held_ms);
 		k_sleep(K_MSEC(50));
 		sys_reboot(SYS_REBOOT_COLD);
 	}
@@ -767,14 +805,15 @@ static void run_dfu_mode(void)
 	(void)bt_le_adv_stop();
 	k_sleep(K_MSEC(20));
 
-#if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
-	rc = smp_bt_register();
-	if (rc != 0 && rc != -EALREADY) {
-		LOG_ERR("DFU smp_bt_register failed: %d", rc);
-		enter_shelf("dfu_smp_fail");
-	}
-#else
-	LOG_WRN("DFU: SMP BT dynamic registration not enabled");
+	/*
+	 * With CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION, smp_bt_setup()
+	 * already registered the SMP GATT service at boot. Calling smp_bt_register()
+	 * again fails with bt_gatt "Unable to register handle" / -EINVAL. DFU only
+	 * needs to advertise the SMP UUID so nRF Device Manager can find us.
+	 */
+#if !defined(CONFIG_MCUMGR_TRANSPORT_BT)
+	LOG_ERR("DFU: CONFIG_MCUMGR_TRANSPORT_BT is not enabled");
+	return;
 #endif
 
 	{
@@ -791,38 +830,61 @@ static void run_dfu_mode(void)
 				     ARRAY_SIZE(dfu_sd));
 		if (rc != 0) {
 			LOG_ERR("DFU adv start failed: %d", rc);
-			enter_shelf("dfu_adv_fail");
+			return;
 		}
 	}
 
 	LOG_INF("DFU mode: SMP BLE active as %s — open nRF Device Manager", local_name);
 
-	/* Magnet was just released after the ≥10 s hold; debounce before exit. */
-	for (int i = 0; i < 100; i++) {
+	/*
+	 * Wake hold may still be down (we entered at 10 s without waiting).
+	 * Fast-blue through that release, then arm exit. Do not use
+	 * magnet_wait_hold(): its red LED would steal the DFU cue.
+	 */
+	while (gpio_pin_get_dt(&button) > 0) {
 		prod_wdt_feed();
-		led_fast_blue_step((i % 2) == 0);
+		led_fast_blue_step(((k_uptime_get() / 50) % 2) == 0);
 		k_sleep(K_MSEC(50));
 	}
 
-	LOG_INF("DFU: hold BTN1 ≥%u ms to return to shelf", MAGNET_DEBOUNCE_MS);
+	LOG_INF("DFU: hold BTN1 ≥%u ms (LED off = committed; release to leave)",
+		MAGNET_DEBOUNCE_MS);
 	for (;;) {
 		prod_wdt_feed();
 		led_fast_blue_step(((k_uptime_get() / 50) % 2) == 0);
-		if (gpio_pin_get_dt(&button) > 0) {
-			int hold_ms = magnet_wait_hold();
-
-			leds_off();
-			if (hold_ms < (int)MAGNET_DEBOUNCE_MS) {
-				LOG_INF("DFU magnet false positive hold_ms=%d — stay in DFU",
-					hold_ms);
-				continue;
-			}
-			LOG_INF("DFU: magnet held %d ms — returning to shelf", hold_ms);
-			(void)bt_le_adv_stop();
-			k_sleep(K_MSEC(20));
-			enter_shelf("dfu_exit");
+		if (gpio_pin_get_dt(&button) <= 0) {
+			k_sleep(K_MSEC(50));
+			continue;
 		}
-		k_sleep(K_MSEC(50));
+
+		int64_t press_ms = k_uptime_get();
+		bool committed = false;
+
+		while (gpio_pin_get_dt(&button) > 0) {
+			int hold_ms = (int)(k_uptime_get() - press_ms);
+
+			prod_wdt_feed();
+			if (!committed && hold_ms >= (int)MAGNET_DEBOUNCE_MS) {
+				committed = true;
+				leds_off(); /* commit cue — stay dark until release */
+				LOG_INF("DFU exit committed — release to return to shelf");
+			} else if (!committed) {
+				led_fast_blue_step(((k_uptime_get() / 50) % 2) == 0);
+			}
+			k_sleep(K_MSEC(50));
+		}
+
+		if (!committed) {
+			LOG_INF("DFU magnet false positive hold_ms=%d — stay in DFU",
+				(int)(k_uptime_get() - press_ms));
+			continue;
+		}
+
+		LOG_INF("DFU: released after commit — returning to shelf");
+		leds_off();
+		(void)bt_le_adv_stop();
+		k_sleep(K_MSEC(20));
+		return;
 	}
 }
 
@@ -1315,22 +1377,29 @@ int main(void)
 		shelf_wake_magic = 0U;
 		shelf_wake_held_ms = 0;
 		LOG_INF("Shelf wake resume hold_ms=%d", held_ms);
+		/*
+		 * DFU is entered in place from enter_shelf() at the 10 s mark.
+		 * A ≥10 s resume here is the low-battery fallback (or a legacy
+		 * handoff); retry DFU only when the pack has recovered.
+		 */
+		if (held_ms >= (int)DFU_HOLD_THRESHOLD_MS) {
+			int32_t batt_mv = juxta_vdd_read_mv();
+
+			if (batt_mv <= 0 || batt_mv >= BATT_DFU_MIN_MV) {
+				run_dfu_mode();
+				enter_shelf("dfu_exit");
+				return 0;
+			}
+			LOG_WRN("Battery too low for DFU (%d mV < %d mV) — normal sync wake",
+				(int)batt_mv, BATT_DFU_MIN_MV);
+		}
 	} else {
-		/* Fresh boot / return from production / DFU — idle shelf with chirps. */
+		/* Fresh boot / return from production — idle shelf with chirps.
+		 * DFU returns into that loop; sync wake soft-reboots back here.
+		 */
 		enter_shelf((cause & RESET_LOW_POWER_WAKE) != 0U ? "lp_wake" : "boot");
 		/* enter_shelf does not return */
 		return 0;
-	}
-
-	if (held_ms >= (int)DFU_HOLD_THRESHOLD_MS) {
-		int32_t batt_mv = juxta_vdd_read_mv();
-
-		if (batt_mv > 0 && batt_mv < BATT_DFU_MIN_MV) {
-			LOG_WRN("Battery too low for DFU (%d mV < %d mV) — normal sync wake",
-				(int)batt_mv, BATT_DFU_MIN_MV);
-		} else {
-			run_dfu_mode(); /* does not return */
-		}
 	}
 
 	run_sync_phase();

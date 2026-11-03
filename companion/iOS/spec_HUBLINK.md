@@ -2,7 +2,7 @@
 
 Contract between the **Juxta6** iOS companion and **juxta6-0-prod** Tags. Service UUID: `57617368-5501-0001-8000-00805f9b34fb`. Advertising name: `JX_*` (Mobile Tag) or `JB_*` (Base Station) + last 6 hex of public address = `deviceId`.
 
-Firmware reference: `applications/juxta6-0-prod` (current ship **6.6.0**, log schema **`jxta-nor-csv-v10`**).
+Firmware reference: `applications/juxta6-0-prod` (current ship **6.6.1**, log schema **`jxta-nor-csv-v10`**).
 
 ## Characteristics
 
@@ -12,7 +12,7 @@ CamelCase JSON status + settings:
 
 ```json
 {
-  "firmwareVersion": "6.6.0",
+  "firmwareVersion": "6.6.1",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
