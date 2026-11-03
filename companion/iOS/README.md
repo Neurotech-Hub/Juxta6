@@ -1,6 +1,6 @@
 # Juxta6 (iOS companion)
 
-iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.6.1**, schema **`jxta-nor-csv-v10`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
+iPhone companion for **Juxta6-0** Tags (`juxta6-0-prod`, firmware **6.6.2**, schema **`jxta-nor-csv-v10`**). Connect over Bluetooth Low Energy (Hublink), sync session settings, transfer daily CSV packages, and inspect plots offline.
 
 Open **`Juxta6.xcodeproj`**, scheme **Juxta6**, on a physical iPhone (BLE is not available in the Simulator).
 
@@ -13,7 +13,7 @@ Developed by the [Neurotech Hub](https://neurotechhub.wustl.edu) at Washington U
 - iOS 17.0+
 - Xcode 15.0+
 - Physical Bluetooth-enabled iPhone
-- Tag running Juxta6 firmware **6.x** (current: `6.6.1`)
+- Tag running Juxta6 firmware **6.x** (current: `6.6.2`)
 - Location When In Use (optional) — used for gateway lat/lon; Open-Meteo outdoor °C is display-only on the clock
 
 ## Features
@@ -69,7 +69,7 @@ See [`spec_HUBLINK.md`](spec_HUBLINK.md). UUIDs match `juxta6-0-prod`.
 
 ```json
 {
-  "firmwareVersion": "6.6.1",
+  "firmwareVersion": "6.6.2",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",

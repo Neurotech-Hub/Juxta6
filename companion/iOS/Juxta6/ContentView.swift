@@ -902,6 +902,10 @@ class BLEManager: NSObject, ObservableObject {
     private var filesToTransfer: [String] = []
     private var currentFileIndex = 0
     private var currentTransferFilename = ""
+    /// Listing `name|size` byte counts. A notify transfer is accepted only when the body matches.
+    private var listedFileBytes: [String: Int] = [:]
+    private var fileAttempt = 0
+    private var transferWatchdog: DispatchWorkItem?
     private var currentTransferDeviceID = ""
     private var currentTransferDateKey = ""
     private var stagingContent = ""
@@ -1197,6 +1201,9 @@ class BLEManager: NSObject, ObservableObject {
         currentTransferDateKey = ""
         currentFileSettled = true
         stagingContent = ""
+        fileAttempt = 0
+        transferWatchdog?.cancel()
+        transferWatchdog = nil
         appState.isTransferringPackage = false
         appState.transferCompletedFiles = 0
         appState.transferTotalFiles = 0
@@ -1235,7 +1242,9 @@ class BLEManager: NSObject, ObservableObject {
         let filename = filesToTransfer[currentFileIndex]
         currentTransferFilename = filename
         currentFileSettled = false
+        fileAttempt = 0
         stagingContent = ""
+        armTransferWatchdog()
 
         let step = min(appState.transferCompletedFiles + 1, max(appState.transferTotalFiles, 1))
         appState.transferStatusLabel = "\(Self.shortTransferName(filename)) · \(step)/\(appState.transferTotalFiles)"
@@ -1293,11 +1302,49 @@ class BLEManager: NSObject, ObservableObject {
         scheduleNextFile()
     }
 
+    private var stagingByteCount: Int {
+        stagingContent.data(using: .utf8)?.count ?? 0
+    }
+
+    /// Restarts the 20 s silence timer. A notify stream that stalls (lost EOF) retries the file.
+    private func armTransferWatchdog() {
+        transferWatchdog?.cancel()
+        let generation = transferGeneration
+        let name = currentTransferFilename
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.transferGeneration == generation,
+                  self.currentTransferFilename == name, !self.currentFileSettled else { return }
+            self.retryOrSkipCurrentFile(reason: "no EOF within 20 s (\(self.stagingByteCount) bytes)")
+        }
+        transferWatchdog = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
+    }
+
+    /// Up to two retries of the same filename when the body length does not match the listing.
+    private func retryOrSkipCurrentFile(reason: String) {
+        guard appState.isTransferringPackage, !currentFileSettled else { return }
+        fileAttempt += 1
+        if fileAttempt < 3 {
+            appState.log("RETRY \(fileAttempt)/2 '\(currentTransferFilename)': \(reason)")
+            stagingContent = ""
+            guard let characteristic = filenameCharacteristic,
+                  let data = currentTransferFilename.data(using: .utf8) else {
+                skipCurrentFile(reason: reason)
+                return
+            }
+            connectedPeripheral?.writeValue(data, for: characteristic, type: .withResponse)
+            armTransferWatchdog()
+            return
+        }
+        skipCurrentFile(reason: reason)
+    }
+
     /// A filename write that the tag rejects (missing file) must not stall the rest of the queue.
     private func skipCurrentFile(reason: String) {
         guard appState.isTransferringPackage, !currentFileSettled else { return }
         currentFileSettled = true
         packageHadSaveFailure = true
+        transferWatchdog?.cancel()
         stagingContent = ""
         appState.log("ERROR: Skipped '\(currentTransferFilename)': \(reason)")
         currentFileIndex += 1
@@ -1535,14 +1582,19 @@ extension BLEManager: CBPeripheralDelegate {
         guard trimmed.contains("|") else { return }
 
         var namesInListing: [String] = []
+        var sizes: [String: Int] = [:]
         for raw in trimmed.components(separatedBy: ";") {
             let component = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !component.isEmpty else { continue }
             if component == "EOF" { continue }
             guard let pipe = component.firstIndex(of: "|") else { continue }
             let name = String(component[..<pipe]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let sizeText = component[component.index(after: pipe)...].trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty, name != "EOF" {
                 namesInListing.append(name)
+                if let size = Int(sizeText), size >= 0 {
+                    sizes[name] = size
+                }
             }
         }
 
@@ -1577,6 +1629,7 @@ extension BLEManager: CBPeripheralDelegate {
             }
 
         DispatchQueue.main.async {
+            self.listedFileBytes = sizes
             self.appState.availablePackages = packages
             let validKeys = Set(packages.map { $0.dateKey })
             self.appState.selectedPackageDates = self.appState.selectedPackageDates.intersection(validKeys)
@@ -1830,6 +1883,14 @@ extension BLEManager: CBPeripheralDelegate {
             if string.trimmingCharacters(in: .whitespacesAndNewlines) == "EOF" {
                 DispatchQueue.main.async {
                     if self.appState.isTransferringPackage {
+                        let got = self.stagingByteCount
+                        let expected = self.listedFileBytes[self.currentTransferFilename]
+                        if let expected, got != expected {
+                            self.retryOrSkipCurrentFile(reason: "got \(got) bytes, listing says \(expected)")
+                            return
+                        }
+                        self.transferWatchdog?.cancel()
+                        self.appState.log("✓ '\(self.currentTransferFilename)' \(got) bytes")
                         self.completeCurrentFileTransfer()
                     } else {
                         self.appState.log("✓ File transfer completed")
@@ -1840,6 +1901,9 @@ extension BLEManager: CBPeripheralDelegate {
 
             if characteristic.uuid == HublinkUUIDs.fileTransfer {
                 stagingContent += string
+                if self.appState.isTransferringPackage {
+                    self.armTransferWatchdog()
+                }
             }
         } else if characteristic.uuid == HublinkUUIDs.fileTransfer {
             stagingContent += String(decoding: data, as: UTF8.self)

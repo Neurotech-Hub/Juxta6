@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define JUXTA_PRODUCT_NAME "Juxta6-0"
-#define JUXTA_FIRMWARE_VERSION "6.6.1"
+#define JUXTA_FIRMWARE_VERSION "6.6.2"
 /* v10: JXV lux (TEMT6200, whole lux, empty cell if the sample fails).
  * v9: Mobile (JX_) / Base (JB_) identity; JXB peer_id is X|B + 6 hex.
  * v8: JXV temp_c + humidity; vitals floor 60 s; JXS lat/lon; day-relative sec. */

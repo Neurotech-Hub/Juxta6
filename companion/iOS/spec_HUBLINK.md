@@ -2,7 +2,7 @@
 
 Contract between the **Juxta6** iOS companion and **juxta6-0-prod** Tags. Service UUID: `57617368-5501-0001-8000-00805f9b34fb`. Advertising name: `JX_*` (Mobile Tag) or `JB_*` (Base Station) + last 6 hex of public address = `deviceId`.
 
-Firmware reference: `applications/juxta6-0-prod` (current ship **6.6.1**, log schema **`jxta-nor-csv-v10`**).
+Firmware reference: `applications/juxta6-0-prod` (current ship **6.6.2**, log schema **`jxta-nor-csv-v10`**).
 
 ## Characteristics
 
@@ -12,7 +12,7 @@ CamelCase JSON status + settings:
 
 ```json
 {
-  "firmwareVersion": "6.6.1",
+  "firmwareVersion": "6.6.2",
   "batteryLevel": 85,
   "memoryLevel": 42,
   "deviceId": "JX_XXXXXX",
@@ -75,9 +75,9 @@ Unknown keys may be ignored.
 - **WRITE** filename to start transfer (e.g. `JXV20260507.csv`)
 - **INDICATE** listing: `name|size;name|size;EOF` (may be chunked; buffer until `EOF`)
 
-### 4. File Transfer (READ/INDICATE) — `57617368-5503-0001-8000-00805f9b34fb`
+### 4. File Transfer (READ/NOTIFY) — `57617368-5503-0001-8000-00805f9b34fb`
 
-- **INDICATE** UTF-8 body chunks; terminal `"EOF"` (or `"NFF"` if missing)
+- **NOTIFY** UTF-8 body chunks; terminal `"EOF"` (or `"NFF"` if missing). The companion accepts the file only when the body byte count matches the listing size, and retries the filename otherwise.
 
 ## Connection sequence
 

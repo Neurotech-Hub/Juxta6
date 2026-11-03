@@ -48,8 +48,17 @@ static uint8_t cached_memory_level;
 static uint16_t current_mtu = 23;
 static bool connected;
 static bool transfer_active;
-static bool transfer_eof_pending; /* awaiting ack for standalone "EOF" indication */
+static bool transfer_eof_pending; /* EOF notification queued; finish when it drains */
 static bool indication_pending;
+/* File body is notified, not indicated. Several packets stay in flight; the
+ * completion callback only means a local buffer freed, so the phone checks
+ * the listing size and retries the file if bytes were dropped. */
+#define TRANSFER_NOTIFY_DEPTH 6
+static atomic_t transfer_notify_inflight;
+static uint8_t transfer_gen;
+static bool transfer_pumping;
+static struct bt_gatt_notify_params transfer_notify_params;
+static struct k_work_delayable transfer_kick_work;
 static atomic_t datetime_synced;
 static char node_response[NODE_RESPONSE_MAX_SIZE];
 static char gateway_command[GATEWAY_COMMAND_MAX_SIZE];
@@ -73,7 +82,6 @@ static bool listing_tx_active;
 static const struct bt_gatt_attr *filename_char_attr;
 static const struct bt_gatt_attr *file_transfer_char_attr;
 static struct bt_gatt_indicate_params filename_ind_params;
-static struct bt_gatt_indicate_params file_transfer_ind_params;
 
 static void continue_file_transfer(void);
 
@@ -342,7 +350,7 @@ static int send_indication(struct bt_conn *conn, const struct bt_gatt_attr *attr
 		return -EBUSY;
 	}
 
-	params = (attr == filename_char_attr) ? &filename_ind_params : &file_transfer_ind_params;
+	params = &filename_ind_params;
 	memset(params, 0, sizeof(*params));
 	params->attr = attr;
 	params->data = data;
@@ -383,30 +391,36 @@ static void filename_indication_confirmed(struct bt_conn *conn,
 	}
 }
 
-static void file_transfer_indication_confirmed(struct bt_conn *conn,
-											   struct bt_gatt_indicate_params *params, uint8_t err)
+static void transfer_notify_done(struct bt_conn *conn, void *user_data)
 {
 	ARG_UNUSED(conn);
-	ARG_UNUSED(params);
 
-	indication_pending = false;
-	if (err != 0U)
+	if ((uint8_t)(uintptr_t)user_data != transfer_gen)
 	{
-		LOG_WRN("file transfer indication failed: 0x%02x", err);
-		transfer_eof_pending = false;
-		transfer_active = false;
 		return;
 	}
-
-	if (transfer_eof_pending)
+	if (atomic_get(&transfer_notify_inflight) > 0)
 	{
-		transfer_eof_pending = false;
-		transfer_active = false;
-		LOG_INF("transfer complete");
-		return;
+		atomic_dec(&transfer_notify_inflight);
 	}
-
 	continue_file_transfer();
+}
+
+static void transfer_kick_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	continue_file_transfer();
+}
+
+static int send_transfer_notify(const void *data, uint16_t len)
+{
+	memset(&transfer_notify_params, 0, sizeof(transfer_notify_params));
+	transfer_notify_params.attr = file_transfer_char_attr;
+	transfer_notify_params.data = data;
+	transfer_notify_params.len = len;
+	transfer_notify_params.func = transfer_notify_done;
+	transfer_notify_params.user_data = (void *)(uintptr_t)transfer_gen;
+	return bt_gatt_notify_cb(current_conn, &transfer_notify_params);
 }
 
 /* Push the next slice of `filename_listing` over the filename characteristic.
@@ -504,77 +518,108 @@ static int start_transfer(const char *name)
 		return rc;
 	}
 
+	transfer_gen++;
+	atomic_set(&transfer_notify_inflight, 0);
 	transfer_offset = 0;
 	transfer_eof_pending = false;
 	transfer_active = true;
-	LOG_INF("transfer start %s payload=%u", transfer_entry.path,
+	LOG_INF("transfer start %s payload=%u (notify)", transfer_entry.path,
 			juxta_log_transfer_payload_bytes(&transfer_entry));
 	return 0;
 }
 
+static void finish_transfer_if_drained(void)
+{
+	if (transfer_eof_pending && atomic_get(&transfer_notify_inflight) == 0)
+	{
+		transfer_eof_pending = false;
+		transfer_active = false;
+		LOG_INF("transfer complete");
+	}
+}
+
 static void continue_file_transfer(void)
 {
-	size_t bytes_read = 0;
 	size_t max_chunk = MIN(sizeof(transfer_chunk), current_mtu > 3U ? current_mtu - 3U : 20U);
-	int rc;
 
-	if (!transfer_active || !current_conn || !file_transfer_char_attr)
+	if (transfer_pumping)
 	{
 		return;
 	}
+	transfer_pumping = true;
 
-	if (juxta_log_busy())
+	while (transfer_active && !transfer_eof_pending && current_conn && file_transfer_char_attr &&
+		   atomic_get(&transfer_notify_inflight) < TRANSFER_NOTIFY_DEPTH)
 	{
-		LOG_WRN("transfer aborted: log format in progress");
-		transfer_eof_pending = false;
-		transfer_active = false;
-		return;
-	}
+		size_t bytes_read = 0;
+		int rc;
 
-	rc = juxta_log_read_file_for_transfer(log_ctx, &transfer_entry, transfer_offset,
-										  transfer_chunk, max_chunk, &bytes_read);
-	if (rc != 0)
-	{
-		LOG_ERR("transfer read failed: %d", rc);
-		transfer_eof_pending = false;
-		transfer_active = false;
-		return;
-	}
-
-	if (bytes_read == 0U)
-	{
-		uint32_t payload_len = juxta_log_transfer_payload_bytes(&transfer_entry);
-
-		if (transfer_offset != payload_len)
+		if (juxta_log_busy())
 		{
-			LOG_ERR("transfer: stale offset=%u payload_len=%u", transfer_offset,
-					payload_len);
-			transfer_eof_pending = false;
+			LOG_WRN("transfer aborted: log format in progress");
 			transfer_active = false;
-			return;
+			break;
 		}
 
-		memcpy(transfer_chunk, "EOF", 3);
-		transfer_eof_pending = true;
-		rc = send_indication(current_conn, file_transfer_char_attr, transfer_chunk, 3,
-							 file_transfer_indication_confirmed);
+		rc = juxta_log_read_file_for_transfer(log_ctx, &transfer_entry, transfer_offset,
+											  transfer_chunk, max_chunk, &bytes_read);
 		if (rc != 0)
 		{
-			LOG_WRN("EOF indication busy/failed: %d", rc);
-			transfer_eof_pending = false;
+			LOG_ERR("transfer read failed: %d", rc);
 			transfer_active = false;
+			break;
 		}
-		return;
+
+		if (bytes_read == 0U)
+		{
+			uint32_t payload_len = juxta_log_transfer_payload_bytes(&transfer_entry);
+
+			if (transfer_offset != payload_len)
+			{
+				LOG_ERR("transfer: stale offset=%u payload_len=%u", transfer_offset, payload_len);
+				transfer_active = false;
+				break;
+			}
+
+			memcpy(transfer_chunk, "EOF", 3);
+			rc = send_transfer_notify(transfer_chunk, 3);
+			if (rc == -ENOMEM || rc == -EAGAIN)
+			{
+				break;
+			}
+			if (rc != 0)
+			{
+				LOG_WRN("EOF notify failed: %d", rc);
+				transfer_active = false;
+				break;
+			}
+			atomic_inc(&transfer_notify_inflight);
+			transfer_eof_pending = true;
+			break;
+		}
+
+		rc = send_transfer_notify(transfer_chunk, (uint16_t)bytes_read);
+		if (rc == -ENOMEM || rc == -EAGAIN)
+		{
+			break;
+		}
+		if (rc != 0)
+		{
+			LOG_WRN("transfer notify failed: %d", rc);
+			transfer_active = false;
+			break;
+		}
+		atomic_inc(&transfer_notify_inflight);
+		transfer_offset += bytes_read;
 	}
 
-	transfer_offset += bytes_read;
-	rc = send_indication(current_conn, file_transfer_char_attr, transfer_chunk, (uint16_t)bytes_read,
-						 file_transfer_indication_confirmed);
-	if (rc != 0)
+	transfer_pumping = false;
+	finish_transfer_if_drained();
+
+	/* Nothing queued and the stack refused the buffer: try again shortly. */
+	if (transfer_active && !transfer_eof_pending && atomic_get(&transfer_notify_inflight) == 0)
 	{
-		LOG_WRN("transfer indication busy/failed: %d", rc);
-		transfer_eof_pending = false;
-		transfer_active = false;
+		(void)k_work_schedule(&transfer_kick_work, K_MSEC(5));
 	}
 }
 
@@ -891,7 +936,7 @@ static ssize_t read_file_transfer_char(struct bt_conn *conn, const struct bt_gat
 static void file_transfer_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
 	ARG_UNUSED(attr);
-	LOG_INF("file transfer indications %s", value == BT_GATT_CCC_INDICATE ? "enabled" : "off");
+	LOG_INF("file transfer notifications %s", value == BT_GATT_CCC_NOTIFY ? "enabled" : "off");
 }
 
 static void filename_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
@@ -913,7 +958,7 @@ BT_GATT_SERVICE_DEFINE(juxta_hublink_svc, BT_GATT_PRIMARY_SERVICE(BT_UUID_JUXTA_
 											  read_filename_char, write_filename_char, NULL),
 					   BT_GATT_CCC(filename_ccc_changed, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 					   BT_GATT_CHARACTERISTIC(BT_UUID_JUXTA_FILE_TRANSFER_CHAR,
-											  BT_GATT_CHRC_READ | BT_GATT_CHRC_INDICATE,
+											  BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
 											  BT_GATT_PERM_READ, read_file_transfer_char, NULL,
 											  NULL),
 					   BT_GATT_CCC(file_transfer_ccc_changed,
@@ -923,6 +968,7 @@ int juxta_ble_service_init(struct juxta_log_context *ctx)
 {
 	log_ctx = ctx;
 	k_work_init(&gateway_work, gateway_work_handler);
+	k_work_init_delayable(&transfer_kick_work, transfer_kick_handler);
 	filename_char_attr = bt_gatt_find_by_uuid(juxta_hublink_svc.attrs,
 											  juxta_hublink_svc.attr_count,
 											  BT_UUID_JUXTA_FILENAME_CHAR);
