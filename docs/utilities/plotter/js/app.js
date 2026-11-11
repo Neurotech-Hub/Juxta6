@@ -143,12 +143,23 @@
     fileInput.value = "";
   });
 
-  document.getElementById("load-demo-link").addEventListener("click", () => {
+  document.getElementById("load-demo-link").addEventListener("click", async () => {
     if (typeof buildJuxtaDemoFiles !== "function") {
       showWarnings(["Demo data loader is unavailable."]);
       return;
     }
-    handleFiles(buildJuxtaDemoFiles());
+    const btn = document.getElementById("load-demo-link");
+    const prior = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    try {
+      handleFiles(await buildJuxtaDemoFiles());
+    } catch (err) {
+      showWarnings([err && err.message ? err.message : String(err)]);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prior;
+    }
   });
 
   // Timezone switch re-renders everything

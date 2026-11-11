@@ -52,7 +52,7 @@ Filenames must be `JX{S|V|B}YYYYMMDD.csv`. For JXV/JXB, `sec` is day-relative UT
 
 Timezone dropdown: Central, Eastern, or UTC (default). Data is recorded in UTC; selecting UTC shows timestamps as stored.
 
-**Demo:** use **Load demo data** (lower right under the drop zone) for a synthetic `jxta-nor-csv-v10` day (`JX_A1B2C3`, ~3 h production, includes a `B*` base peer) without uploading files.
+**Demo:** use **Load Dog example (31 Oct)** (lower right under the drop zone) for one real day of the leash tag (`JX_5C0848`, 2026-10-31) from the [pyJuxta example deployment](../pyjuxta/data/). That needs `docs/` served over HTTP so the plotter can fetch `../pyjuxta/data/JX_5C0848/` (GitHub Pages or `python3 -m http.server` from `docs/`).
 
 Map tiles load from Esri (dark canvas) when a package has coordinates (approx. location visible to the tile CDN; CSV stays in-browser). PapaParse, Plotly, JSZip, and Leaflet load from CDNs.
 
