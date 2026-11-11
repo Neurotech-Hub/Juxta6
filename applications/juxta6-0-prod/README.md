@@ -81,6 +81,37 @@ burst length. Defaults: **scan every 30 s**, **adv every 2 s** (0 = disable that
 modality). Each burst is fixed ~**1 s** (scan = 500 ms ANT1 + 500 ms ANT2;
 adv = 1000 ms non-connectable). Never both at once; scan wins if both due.
 
+## Battery life
+
+Measured average current on this firmware. Estimates assume a Panasonic CR2032
+(225 mAh nominal) at room temperature (20–21 °C) with a 2.6 V cutoff. Usable
+capacity is taken from published discharge curves and reduced for the load,
+rather than treating all 225 mAh as available at 2.6 V.
+
+| Mode | Current (µA) | Usable capacity (mAh) | Runtime (days) |
+| --- | ---: | ---: | ---: |
+| Shelf | 29 | ~215 | 309 |
+| Connectable advertising | 265 | ~198 | 31 |
+| Connected | 413 | ~186 | 19 |
+| adv 2 s / scan 30 s | 141 | ~207 | 61 |
+| adv 5 s / scan 30 s | 128 | ~209 | 68 |
+| adv 5 s / scan 60 s | 95 | ~212 | 93 |
+
+The default production cadence (advertise every 2 s, scan every 30 s) is about
+**61 days**. Slowing to advertise every 5 s and scan every 60 s is about
+**52% longer** (93 days). Shelf, the connectable sync advert, and an open
+connection are much shorter.
+
+Assumptions: a fresh CR2032 directly on the measured load, currents that are
+true time averages, and negligible self-discharge over these spans.
+
+BLE transmit and receive peaks sag the cell. Voltage can dip under 2.6 V before
+the estimated capacity is used, especially with too little decoupling. These
+are nominal estimates, not guaranteed runtimes.
+
+Sources: [Panasonic CR2032](https://energy.panasonic.com/dam/master/pdf/en/datasheet/lithium/CR2032_Datasheet_EN.pdf),
+[Energizer CR2032](https://energizer.com/wp-content/uploads/2024/09/cr2032.pdf).
+
 ## Build / flash (user)
 
 - Board: `nrf54l15tag/nrf54l15/cpuapp`

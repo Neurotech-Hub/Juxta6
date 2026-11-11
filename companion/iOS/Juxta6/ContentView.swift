@@ -4351,6 +4351,47 @@ struct InfoAboutView: View {
                     )
                 }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Firmware update (DFU)")
+                        .font(.system(size: 13, weight: .semibold))
+                    (Text("DFU mode starts in place at a ≥ 10 s button hold (3× green → fast blue; see gestures above). Once in DFU, use Nordic Semiconductor's ")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                     + Text("nRF Device Manager")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.secondary)
+                     + Text(" app to upload the firmware image. Leave DFU with a ≥ 3 s hold (LED off at commit) then release. Image files are supplied by the developer.")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                NavigationLink {
+                    OrientationCalibrationView()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "scope")
+                            .font(.system(size: 16, weight: .semibold))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Orientation Calibration")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text("Map RSSI vs distance around a single JX_ Tag.")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text("App version")
                         .font(.system(size: 13, weight: .semibold))
@@ -4365,21 +4406,6 @@ struct InfoAboutView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color(.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Firmware update (DFU)")
-                        .font(.system(size: 13, weight: .semibold))
-                    (Text("DFU mode starts in place at a ≥ 10 s button hold (3× green → fast blue; see gestures above). Once in DFU, use Nordic Semiconductor's ")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                     + Text("nRF Device Manager")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.secondary)
-                     + Text(" app to upload the firmware image. Leave DFU with a ≥ 3 s hold (LED off at commit) then release. Image files are supplied by the developer.")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary))
-                    .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Text("Developed by the Neurotech Hub at WashU in St. Louis")

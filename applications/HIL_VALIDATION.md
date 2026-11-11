@@ -1,6 +1,6 @@
 # HIL validation log (nRF54L15 Tag)
 
-Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as you run tests; leave current cells blank until PPK2 captures known-good hardware.
+Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as you run tests. Production current and CR2032 runtime estimates are in [juxta6-0-prod/README.md](juxta6-0-prod/README.md).
 
 **Do not invent pass/fail or current numbers.** The Tag HW guide does not publish application-state current targets. Do not invent CS absolute accuracy thresholds — characterize first.
 
@@ -54,25 +54,6 @@ Hardware-developer ground-truth log for Juxta6 Tag bring-up apps. Fill rows as y
 - Channel Sounding **works** on Tag↔Tag (functional pass).
 - Distance estimates are **likely better than RSSI** for short-range proximity.
 - Product tradeoff left open: whether a connected CS session is worth the complexity versus advertising RSSI alone for this application. **HIL-11** characterizes the adv-RSSI / dual-antenna side of that tradeoff.
-
-
-
-## Known-good currents (fill after first good PPK2 runs)
-
-
-| State                  | App / condition                | I_avg | I_peak (optional) | Notes                            | Date | Operator |
-| ---------------------- | ------------------------------ | ----- | ----------------- | -------------------------------- | ---- | -------- |
-| System OFF (shelf)     | `tag-sysoff` after OFF         |       |                   |                                  |      |          |
-| Sensors quiet          | `tag-sensors-off` idle         |       |                   | BMI + BME suspended; ADXL unused |      |          |
-| ADXL-only              | `tag-adxl367` sampling         |       |                   | BMI + BME suspended              |      |          |
-| Flash burst            | `tag-flash` erase/write window |       |                   | Short event                      |      |          |
-| BLE advertising        | `tag-ble-adv` disconnected     |       |                   |                                  |      |          |
-| BLE connected idle     | `tag-ble-adv` connected        |       |                   |                                  |      |          |
-| Discovery adv+scan     | `tag-discover`                 |       |                   |                                  |      |          |
-| Adv RSSI dual-antenna  | `tag-rssi-adv` scanner         |       |                   |                                  |      |          |
-| CS initiator procedure | `tag-cs` initiator             |       |                   | Short event                      |      |          |
-| CS reflector armed     | `tag-cs` reflector             |       |                   |                                  |      |          |
-
 
 
 
