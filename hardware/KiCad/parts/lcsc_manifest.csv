@@ -1,0 +1,25 @@
+ref,mpn,description,package_expected,lcsc_id,lcsc_mpn,import_scope,jlc_stock,status,notes
+U1,nRF54L15-QFAA-C00,Wireless MCU QFN-48,QFN-48,C42458750,NRF54L15-QFAA-R,specialized,0,imported,LCSC -R tape; JLC stock 0 — supply via DigiKey/Mouser or Nordic; keep symbol for schematic
+U3,BME688,Gas/pressure/temp/humidity,LGA-8,C3664478,BME688,specialized,4480,imported,In stock
+U4,BMI270,6-axis IMU (sole motion sensor),LGA-14,C2836813,BMI270,specialized,5255,locked,Juxta motion path: low-power impulse + optional 6-axis; no ADXL367 on board
+U5,ADXL367BCCZ,Tag-only micropower accel (not on Juxta6),LGA-12,C17643415,ADXL367BCCZ-RL7,specialized,2,not_used,Symbol remains in lib from earlier pull; do not place on juxta6_v1-0
+U6,PE42421SCAA-Z,SPDT RF switch for A1/A2 CS (replaces Tag SKY13348),SC-70-6,C470893,PE42421SCAA-Z,specialized,606,locked,1.8V VDD min (at edge). Not pin-compatible with SKY13348 — rewire CTRL vs Tag ANTSEL. Verify matching network.
+U6_tag,SKY13348-374LF,Tag RF switch (discontinued / not on Juxta6),XFDFN-6,C150883,SKY13348-374LF,specialized,0,not_used,EOL / JLC stock 0; symbol may remain in lib — do not place
+U6_as179,AS179-92LF,GaAs SPDT considered then rejected for 1.8V,SC-70-6,,,specialized,,not_used,Needs ~3V control high (Vhigh typ 2-5V) — incompatible with 1.8V GPIO/rail without level shift
+U8,W25Q64JWUUIQ,64Mbit 1.8V SPI NOR flash (project fitted),USON-8(4x3),C6604692,W25Q64JWUUIQ,specialized,14703,locked,1.7-1.95V; 8MiB. Symbol juxta6:W25Q64JWUUIQ / FP USON-8_L4.0-W3.0-P0.80-BL_WINBOND_UU
+U8_old,MX25L3233FZBI-08G-TR,32Mbit 3V SPI NOR (superseded — not 1.8V capable),USON-8(4x3),C2803001,MX25L3233FZBI-08GTR,specialized,187,not_used,VCC min 2.65V; incompatible with 1.8V VDD topology. Symbol may remain in lib
+U2,TPS63900DSKR,Buck-boost PMIC (coin XOR LiPo input) Vout=1.8V,WSON-10-EP 2.5x2.5,C1518762,TPS63900DSKR,specialized,5447,locked,One source at a time — never coin+LiPo together. Vout locked 1.8V; CFG/L/C per TI datasheet
+R*/C*/L*/FB*,(passives),Generic + RF + photo/memory + PMIC passives,0201 preferred,,,,"",passive,,skip_import,"Prefer 0201 where able; 0402+ for bulk/power/RF High-Q. KiCad Device + JLC Basic."
+Bat1,BU2032SM-FH-GTR,CR2032 SMD coin holder (primary CAD),SMD coin 20mm,C6755625,BU2032SM-FH-GTR,specialized,0,imported_dnp_default,DigiKey CAD in lib (juxta6:BU2032SM-FH-GTR / BU2032SM-FH-GTR_MPD). Default assembly DNP — populate only for coin-cell builds (XOR LiPo)
+Bat1_alt,BS-06-B4AA012,CR2032 holder LCSC/JLC variant,SMD,C964758,BS-06-B4AA012,specialized,5202,imported_alt,JLC-stocked alt footprint/symbol in lib; not drop-in to BU2032SM-FH land pattern — pick one holder FP for the board
+J1,S2B-PH-SM4-TB(LF)(SN),JST PH 2.0 2P RA SMD LiPo,SMD RA 2mm,C295747,S2B-PH-SM4-TB(LF)(SN),specialized,115,imported_dnp_default,Locked connector CAD in lib (juxta6:S2B-PH-SM4-TB). Default DNP — DigiKey hand-place when LiPo build (XOR coin). C131337 vertical TH removed
+Q1,TEMT6200FX01,550nm top-view phototransistor / ambient light,0805,C143695,TEMT6200FX01,specialized,2228,imported,Juxta populates Tag optional light-sense circuit
+Q2/Q3,RV2C010UNT2L,N-FET for phototransistor circuit,X2-DFN1006-3,C570828,RV2C010UNT2L,specialized,506,imported,Two places (Q2+Q3); exact Rohm MPN in stock
+A1/A2,2450AT18D0100001E,Dual 2.45GHz CS chip antennas (identical pair),SMD-4P ~3.2x1.6,C7450310,2450AT18D0100001E,specialized,267,locked,Johanson Tag-family; qty 2 via PE42421. Place×2. Alt higher-stock: C3285031 AH316M245001-T (1206) or C127611 RFANT5220110A0T (5.2x2) — needs matching retune
+LED1,APHF1608LSEEQBDZGKC,RGB LED 1608,SMD-4P,C3019171,APHF1608LSEEQBDZGKC,specialized,3905,imported,Exact MPN; no EasyEDA 3D
+X1,X1A0000610008,LFCLK 32.768kHz 9pF (Epson FC-12M class),SMD2012-2P,C96341,X1A0000610008,specialized,18518,locked,Same 2012+9pF as Tag TXC (C2450167 stock 0). Symbol FC-12M32.768KHZ9PF20PPM / FP OSC-SMD_L2.0-W1.2. Tag MPN kept as not_used reference only
+X1_tag,9HT11-32.768KDZC-T,Tag LF crystal (JLC stock 0),SMD2012-2P,C2450167,9HT11-32.768KDZC-T,specialized,0,not_used,Superseded by C96341 for Juxta6
+X2,X201632MKB4SI,HFCLK 32MHz CL=8pF,SMD2016-4P,C718072,X201632MKB4SI,specialized,84917,locked,Matches Tag CL=8pF + 2016. Symbol X201632MKB4SI / FP CRYSTAL-SMD_4P-L2.0-W1.6-BL. Premium alt NDK C5441424
+X2_tag,CX2016DB32000D0WZRC1,Tag HF crystal (JLC stock 0),SMD2016-4P,C1985237,CX2016DB32000D0WZRC1,specialized,0,not_used,Superseded by C718072 for Juxta6
+SW1,3.2X4.2X3.0DH260g-QBPJ,User tactile BTN1 ~4.2x3.4x3.0 260gf,SMD-4P,C55232901,3.2X4.2X3.0DH260g-QBPJ,specialized,1727,locked,Replaces Tag L-KLS7-TS3402. In lib as 3.2X4.2X3.0DH260G-QBPJ / SW-SMD_4P-L4.2-W3.3-P2.15-LS5.2
+TP_SWD,(custom 5-pad),SWD/program testpoints: VDD GND SWDIO SWDCLK RESET,testpoint,,,,"",specialized,,planned_custom,No 2x5 connector (Tag P1 / WCON) — board too small. Five pads only; layout/pitch TBD. Use KiCad TestPoint or custom FP

@@ -1,0 +1,15 @@
+---
+description: KiCad schematic work under hardware/KiCad (no AI placement/routing)
+globs: "hardware/KiCad/**"
+alwaysApply: false
+---
+
+# KiCad (Juxta6)
+
+Canonical detail: `hardware/KiCad/AGENTS.md`.
+
+- Prefer the `kicad` MCP server for schematic inspect/edit and ERC. Do **not** use PCB placement or routing tools.
+- Default MCP mode is read-only; switch to write only after stating the plan and getting confirmation.
+- Import LCSC parts with `easyeda2kicad` into `hardware/KiCad/juxta6_v1-0/libs/juxta6` and record IDs in `hardware/KiCad/parts/lcsc_manifest.csv`.
+- Treat `hardware/nrf54l15-tag/` as the electrical reference for juxta6_v1-0; do not invent conflicting pinouts.
+- After schematic edits: run ERC and summarize; leave layout to the human.

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "kicad": {
+      "command": "/Users/mattgaidica/.local/bin/kicad-mcp-pro",
+      "args": [],
+      "env": {
+        "KICAD_MCP_PROJECT_DIR": "/Users/mattgaidica/Documents/Software/Juxta6-nRF/hardware/KiCad/juxta6_v1-0",
+        "KICAD_MCP_PROFILE": "schematic_authoring",
+        "KICAD_MCP_OPERATING_MODE": "write",
+        "PATH": "/Users/mattgaidica/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}

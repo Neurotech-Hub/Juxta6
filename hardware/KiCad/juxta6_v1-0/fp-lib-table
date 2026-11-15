@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "juxta6")(type "KiCad")(uri "${KIPRJMOD}/libs/juxta6.pretty")(options "")(descr "Juxta6 LCSC/EasyEDA footprints"))
+)

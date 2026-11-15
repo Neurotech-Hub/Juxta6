@@ -39,6 +39,16 @@ venv/
 *.log
 compile_commands.json
 
+# KiCad / easyeda2kicad local caches
+.easyeda_cache/
+hardware/KiCad/**/.easyeda_cache/
+hardware/KiCad/**/.kicad-mcp/
+hardware/KiCad/**/output/
+hardware/KiCad/backups/
+*.kicad_prl
+*.lck
+*-backups/
+
 # pyJuxta
 pyjuxta/.venv/
 pyjuxta/.venv-pyodide/
