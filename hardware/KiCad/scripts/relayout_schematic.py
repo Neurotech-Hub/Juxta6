@@ -34,12 +34,12 @@ PASSIVE_LIBS = ("Device:R", "Device:C", "Device:L", "Device:FerriteBead")
 # Functional rows per sheet (left -> right, top -> bottom).
 ROWS: dict[str, list[list[str]]] = {
     "01_power": [
-        ["U2", "L1", "R1", "R2", "R3"],
-        ["C1", "C3", "C6", "C2", "C4", "C5", "FB1", "FB2"],
+        ["U2", "L1"],
+        ["C1", "C3", "C6", "C2", "C4", "C5"],
         ["Bat1", "J1"],
     ],
     "02_mcu_clocks": [
-        ["X1", "C26", "X2", "C27", "C28", "L2", "R4"],
+        ["X1", "X2", "L2", "R4"],
         [
             "U1",
             [
@@ -51,9 +51,10 @@ ROWS: dict[str, list[list[str]]] = {
         ],
     ],
     "03_rf": [
+        ["L3", "C31", "L4", "C32", "L5", "C33", "C34"],
         ["U6", "R5", "C30"],
-        ["C31", "C32", "C33", "C34", "C35", "C36", "C37", "C38", "C39", "C40", "C41", "C42"],
-        ["L3", "L4", "L5", "L6"],
+        ["C35", "C36", "L6", "C38"],
+        ["C39", "C40", "C41", "C43"],
         ["A1", "A2"],
     ],
     "04_sensors": [
@@ -64,7 +65,7 @@ ROWS: dict[str, list[list[str]]] = {
         ["U8", "R10", "C60", "C61"],
         ["LED1", "R11", "R12", "R13"],
         ["SW1", "R17", "C63"],
-        ["Q1", "R14", "C62", "Q2", "R15", "R16", "Q3"],
+        ["Q1", "R14", "C62", "Q2", "R15", "R16"],
     ],
     "06_debug": [["TP1", "TP2", "TP3", "TP4", "TP5"]],
 }

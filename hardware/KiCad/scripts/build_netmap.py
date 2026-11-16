@@ -18,10 +18,69 @@ OUT = ROOT / "juxta6_v1-0" / "juxta6_netmap.json"
 
 # Explicit assignments (override traced intent). Pin key = "REF.NUMBER".
 OVERRIDES: dict[str, dict[str, str | None]] = {
+    "01_power": {
+        # TPS63900 @ 1.8 V unlimited ICL: CFG1–3 hard-tied to GND (R2D #0).
+        # EN→VIN (always on) and SEL→GND (VO(1)) stay as traced on U2.1/U2.2.
+        "U2.3": "GND",
+        "U2.4": "GND",
+        "U2.5": "GND",
+    },
     "02_mcu_clocks": {
+        # Match Tag: LFXO/HFXO use SoC internal load caps (no external CL parts).
         # 32 MHz crystal case pins.
         "X2.2": "GND",
         "X2.4": "GND",
+    },
+    "03_rf": {
+        # Tag pca20072 RF chain (Tag ref in brackets). Values TBD / retune for PE42421.
+        # SoC match: ANT -L[L2]- (C[C6]) -L[L3]- (C[C9]) -L[L4]- (C[C11]) -> RF_SOC.
+        "L3.1": "RF_ANT",
+        "L3.2": "RF_M1",
+        "C31.1": "RF_M1",
+        "C31.2": "GND",
+        "L4.1": "RF_M1",
+        "L4.2": "RF_M2",
+        "C32.1": "RF_M2",
+        "C32.2": "GND",
+        "L5.1": "RF_M2",
+        "L5.2": "RF_SOC",
+        "C33.1": "RF_SOC",
+        "C33.2": "GND",
+        # DC block into switch common [C28].
+        "C34.1": "RF_SOC",
+        "C34.2": "RF_RFC",
+        "U6.5": "RF_RFC",
+        # RF1 leg: DC block [C29], pi = shunt [C30] / series L [L7] / shunt [C31 NC].
+        "U6.1": "RF_J1",
+        "C35.1": "RF_J1",
+        "C35.2": "RF_ANT1",
+        "C36.1": "RF_ANT1",
+        "C36.2": "GND",
+        "L6.1": "RF_ANT1",
+        "L6.2": "RF_A1",
+        # Tag C31 N.C. shunt omitted (not fitted).
+        # Johanson 2450AT18D0100: pin1 FEED, pin4 GND (feed end), pins 2/3 far end
+        # -> tuning cap to GND [C42].
+        "A1.1": "RF_A1",
+        "A1.2": "RF_A1_TUNE",
+        "A1.3": "RF_A1_TUNE",
+        "A1.4": "GND",
+        "C38.1": "RF_A1_TUNE",
+        "C38.2": "GND",
+        # RF2 leg: DC block [C25], pi = shunt [C26] / series C [C40]; Tag C27 N.C. omitted.
+        "U6.3": "RF_J2",
+        "C39.1": "RF_J2",
+        "C39.2": "RF_ANT2",
+        "C40.1": "RF_ANT2",
+        "C40.2": "GND",
+        "C41.1": "RF_ANT2",
+        "C41.2": "RF_A2",
+        "A2.1": "RF_A2",
+        "A2.2": "RF_A2_TUNE",
+        "A2.3": "RF_A2_TUNE",
+        "A2.4": "GND",
+        "C43.1": "RF_A2_TUNE",
+        "C43.2": "GND",
     },
     "04_sensors": {
         # BME688 I2C address select: SDO=GND -> 0x76 (Tag DTS bme688@76).
