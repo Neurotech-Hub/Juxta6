@@ -74,7 +74,7 @@
 	(fp_line (start -3.00 -3.00) (end 3.00 -3.00) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 3.00 -3.00) (end 3.00 3.00) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 3.00 3.00) (end -3.00 3.00) (layer F.CrtYd) (width 0.05))
-	(model "${KIPRJMOD}/hardware/KiCad/juxta6_v1-0/libs/juxta6.3dshapes/QFN-48_L6.0-W6.0-P0.40-TL-EP4.6.wrl"
+	(model "${KIPRJMOD}/libs/juxta6.3dshapes/QFN-48_L6.0-W6.0-P0.40-TL-EP4.6.step"
 		(offset (xyz 0.000 0.000 0.000))
 		(scale (xyz 1 1 1))
 		(rotate (xyz 0 0 0))

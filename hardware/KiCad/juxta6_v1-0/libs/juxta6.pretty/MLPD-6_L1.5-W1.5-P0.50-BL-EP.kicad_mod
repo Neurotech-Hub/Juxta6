@@ -26,7 +26,7 @@
 	(fp_line (start -0.75 -0.75) (end 0.75 -0.75) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 0.75 -0.75) (end 0.75 0.75) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 0.75 0.75) (end -0.75 0.75) (layer F.CrtYd) (width 0.05))
-	(model "${KIPRJMOD}/hardware/KiCad/juxta6_v1-0/libs/juxta6.3dshapes/MLPD-6_L1.5-W1.5-P0.50-BL-EP.wrl"
+	(model "${KIPRJMOD}/libs/juxta6.3dshapes/MLPD-6_L1.5-W1.5-P0.50-BL-EP.step"
 		(offset (xyz 0.000 0.000 0.000))
 		(scale (xyz 1 1 1))
 		(rotate (xyz 0 0 0))

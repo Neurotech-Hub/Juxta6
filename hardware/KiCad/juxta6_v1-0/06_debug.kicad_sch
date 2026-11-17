@@ -415,37 +415,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "42652fdb-2da0-4cf4-a479-c48039389442")
-	)
-	(wire
-		(pts
-			(xy 55.88 53.34) (xy 55.88 55.88)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "606bdd39-a2d8-46bd-863a-7c2a3b2c4bde")
-	)
-	(wire
-		(pts
-			(xy 27.94 53.34) (xy 27.94 55.88)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "6cc7a11f-b3e5-4c45-a0e3-e054cd5558a3")
-	)
-	(wire
-		(pts
-			(xy 71.12 53.34) (xy 71.12 55.88)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "6fb72d1c-c9d8-4cf0-901f-70eaacab605d")
+		(uuid "356ceabb-858d-4555-b761-1ac0df85c1d0")
 	)
 	(wire
 		(pts
@@ -455,7 +425,60 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "edda4cb4-af03-497b-bf05-30e9290cfe1a")
+		(uuid "6c9aaaab-cb9c-419b-a291-17211a966371")
+	)
+	(wire
+		(pts
+			(xy 71.12 53.34) (xy 71.12 55.88)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "97883418-97ec-45d1-a8f1-3763da8b9844")
+	)
+	(wire
+		(pts
+			(xy 27.94 53.34) (xy 27.94 55.88)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9f6a4da6-796a-44d2-8321-b1aa88e87fce")
+	)
+	(wire
+		(pts
+			(xy 55.88 53.34) (xy 55.88 55.88)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "aeb17c9a-6fea-4ecc-b10c-22384c2079fa")
+	)
+	(global_label "SWDIO"
+		(shape bidirectional)
+		(at 55.88 55.88 270)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "29262f11-d42f-49b1-af5f-9bada87bf4a9")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 55.88 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 	)
 	(global_label "nRESET"
 		(shape bidirectional)
@@ -467,7 +490,7 @@
 			)
 			(justify right)
 		)
-		(uuid "20da0d87-ba30-4e47-8361-29563c73cecd")
+		(uuid "878d2a6f-8ea7-4452-b097-9e7f98c45af0")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 88.9 55.88 0)
 			(hide yes)
@@ -490,32 +513,9 @@
 			)
 			(justify right)
 		)
-		(uuid "2bd87825-b6fc-4fbc-913f-e89d375b080d")
+		(uuid "8d01542f-7862-4d1a-83a0-c19d7f455182")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 71.12 55.88 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "SWDIO"
-		(shape bidirectional)
-		(at 55.88 55.88 270)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right)
-		)
-		(uuid "4ae5c517-de80-41fc-8d82-5f17b05c8953")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 55.88 55.88 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -683,158 +683,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:VDD")
-		(at 27.94 55.88 180)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "1d289a20-61de-4f38-9fe1-8d02af7f4ff9")
-		(property "Reference" "#PWR0121"
-			(at 27.94 55.88 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "VDD"
-			(at 27.94 60.33 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 27.94 55.88 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 27.94 55.88 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 27.94 55.88 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "c1639b5e-1bdc-4852-9510-ff06b7b60963")
-		)
-		(instances
-			(project "juxta6_v1-0"
-				(path "/698e8d87-293e-4fa1-bca5-9aae2c2e31e2/5ac5446d-591b-4870-a975-89e4550801c6"
-					(reference "#PWR0121")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:GND")
-		(at 43.18 55.88 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "4c495562-313a-45db-8206-f7241b495b6b")
-		(property "Reference" "#PWR0120"
-			(at 43.18 55.88 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "GND"
-			(at 43.18 60.33 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 43.18 55.88 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 43.18 55.88 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 43.18 55.88 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "5a4bf7a2-953b-4c3a-8bbc-8ef391790441")
-		)
-		(instances
-			(project "juxta6_v1-0"
-				(path "/698e8d87-293e-4fa1-bca5-9aae2c2e31e2/5ac5446d-591b-4870-a975-89e4550801c6"
-					(reference "#PWR0120")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Connector:TestPoint")
 		(at 27.94 53.34 0)
 		(unit 1)
@@ -907,6 +755,82 @@
 			(project "juxta6_v1-0"
 				(path "/698e8d87-293e-4fa1-bca5-9aae2c2e31e2/5ac5446d-591b-4870-a975-89e4550801c6"
 					(reference "TP1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:VDD")
+		(at 27.94 55.88 180)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "53fcc2fa-42b4-4f88-81e8-46ba4c717979")
+		(property "Reference" "#PWR0115"
+			(at 27.94 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "VDD"
+			(at 27.94 60.33 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 27.94 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 27.94 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 27.94 55.88 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "40ec9873-a50a-4a6b-ad88-fa8c7aac864c")
+		)
+		(instances
+			(project "juxta6_v1-0"
+				(path "/698e8d87-293e-4fa1-bca5-9aae2c2e31e2/5ac5446d-591b-4870-a975-89e4550801c6"
+					(reference "#PWR0115")
 					(unit 1)
 				)
 			)
@@ -1063,6 +987,82 @@
 			(project "juxta6_v1-0"
 				(path "/698e8d87-293e-4fa1-bca5-9aae2c2e31e2/5ac5446d-591b-4870-a975-89e4550801c6"
 					(reference "TP3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 43.18 55.88 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "e6dd8e7f-f8f1-41d3-8c76-73f74d3fcdd7")
+		(property "Reference" "#PWR0114"
+			(at 43.18 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 43.18 60.33 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 43.18 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 43.18 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 43.18 55.88 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "80a8de76-0506-4fe5-ad7f-dd20ddb97b71")
+		)
+		(instances
+			(project "juxta6_v1-0"
+				(path "/698e8d87-293e-4fa1-bca5-9aae2c2e31e2/5ac5446d-591b-4870-a975-89e4550801c6"
+					(reference "#PWR0114")
 					(unit 1)
 				)
 			)

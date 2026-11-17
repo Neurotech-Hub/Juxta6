@@ -79,13 +79,15 @@ CLI on this machine: `uv` / `uvx` in `~/.local/bin`, `kicad-mcp-pro` installed v
 3. For new parts: search JLCPCB → pick LCSC ID → `pull_parts.py` / `easyeda2kicad` → place on schematic via MCP or human → set fields (`LCSC`, MPN, value).
 4. After edits: run ERC; report failures; do not “fix” ERC by silencing rules unless asked.
 5. Stop before PCB: leave placement/routing to the human.
+6. **Do not overwrite manual schematic edits.** Prefer live `juxta6_v1-0/*.kicad_sch` as source of truth. Never `relayout` / rewrite sheets from an old `backups/sch_*` snapshot unless the user explicitly asks. When only a subset of parts/nets must change, patch those symbols/labels in place instead of regenerating whole sheets.
+7. Prefer **STEP** 3D models (`libs/juxta6.3dshapes/*.step`) on footprints — not EasyEDA `.wrl`.
 
 ## Guardrails (hardware)
 
 - **Motion (Juxta PCB):** **BMI270 only** (SPI) — low-power impulse + optional 6-axis. Do **not** place ADXL367 (Tag dual-sensor layout does not apply to juxta6_v1-0).
 - Project flash is **W25Q64JWUUIQ** / **C6604692** (1.8 V, 64 Mbit USON-8). Do **not** place MX25L3233 (2.65 V min) or Tag MX25R6435.
-- RF: dual antennas retained; switch is **PE42421** (SC-70, 1.8 V capable at VDD min). Not Tag **SKY13348**; not **AS179-92LF** (needs ~3 V control). Verify PE42421 CTRL vs Tag `ANTSEL`; retune matching at 1.8 V.
-- **Power (Juxta):** **TPS63900** buck-boost; **Vout locked 1.8 V**; **CR2032 XOR JST PH LiPo** (never both energized). Default **Bat1 and J1 DNP**; DigiKey hand-place the chosen source. LiPo connector locked to **C295747** `S2B-PH-SM4-TB` (RA SMD). Coin holder: DigiKey `BU2032SM-FH-GTR` (alt LCSC **C964758`). `parts/import/` is staging only.
+- RF: **single** Johanson **2450AT18B0100001E** / LCSC **C6055600** (corner), FP `juxta6:ANT-SMD_L3.2-W1.6` (PCBA). No PE42421 / A2 / ANTSEL.
+- **Power (Juxta):** **TPS63900** buck-boost; **Vout locked 1.8 V**; **CR2032 XOR JST PH LiPo** (never both energized). Default **Bat1 and J1 DNP**. LiPo: **C295747** `S2B-PH-SM4-TB`. Coin: DigiKey **BU2032SM-FH-GTR** / `juxta6:BU2032SM-FH-GTR`. `parts/import/` is staging only.
 - **Passives:** prefer **0201** footprints where able; larger only for bulk / power / RF Q needs.
 - **Debug:** no 2×5 Tag-style connector. Use **five testpoints**: VDD, GND, SWDIO, SWDCLK, RESET. Do not invent pitch/order without asking.
 

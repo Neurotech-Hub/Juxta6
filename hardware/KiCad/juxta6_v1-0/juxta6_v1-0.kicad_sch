@@ -217,7 +217,7 @@
 				(justify left top)
 			)
 		)
-		(property "Description" "PE42421 + A1/A2 + match network"
+		(property "Description" "Single A1 2450AT18B0100001E corner + match"
 			(at 154.6 52.7 0)
 			(hide yes)
 			(show_name no)
@@ -267,7 +267,7 @@
 				(justify left top)
 			)
 		)
-		(property "Description" "TPS63900 + Bat1/J1 (DNP) + CFG/bulk"
+		(property "Description" "TPS63900 + Bat1 BU2032 / J1 (DNP)"
 			(at 25.4 52.7 0)
 			(hide yes)
 			(show_name no)

@@ -27,7 +27,7 @@
 	(fp_line (start -1.00 -0.62) (end 1.00 -0.62) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 1.00 -0.62) (end 1.00 0.63) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 1.00 0.63) (end -1.00 0.63) (layer F.CrtYd) (width 0.05))
-	(model "${KIPRJMOD}/hardware/KiCad/juxta6_v1-0/libs/juxta6.3dshapes/SENSORS-SMD_0805.wrl"
+	(model "${KIPRJMOD}/libs/juxta6.3dshapes/SENSORS-SMD_0805.step"
 		(offset (xyz 0.000 0.000 0.000))
 		(scale (xyz 1 1 1))
 		(rotate (xyz 0 0 0))

@@ -33,7 +33,7 @@
 	(fp_line (start -1.50 -2.00) (end 1.50 -2.00) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 1.50 -2.00) (end 1.50 2.00) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 1.50 2.00) (end -1.50 2.00) (layer F.CrtYd) (width 0.05))
-	(model "${KIPRJMOD}/hardware/KiCad/juxta6_v1-0/libs/juxta6.3dshapes/USON-8_L4.0-W3.0-P0.80-TL-EP.wrl"
+	(model "${KIPRJMOD}/libs/juxta6.3dshapes/USON-8_L4.0-W3.0-P0.80-TL-EP.step"
 		(offset (xyz 0.000 0.000 0.000))
 		(scale (xyz 1 1 1))
 		(rotate (xyz 0 0 0))
