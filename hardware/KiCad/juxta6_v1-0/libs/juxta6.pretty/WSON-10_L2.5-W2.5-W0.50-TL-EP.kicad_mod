@@ -209,7 +209,7 @@
 		(uuid "71289341-76f5-4b04-b62c-f5f23034274d")
 	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/hardware/KiCad/juxta6_v1-0/libs/juxta6.3dshapes/WSON-10_L2.5-W2.5-W0.50-TL-EP.wrl"
+	(model "${KIPRJMOD}/libs/juxta6.3dshapes/WSON-10_L2.5-W2.5-W0.50-TL-EP.step"
 		(offset
 			(xyz 0 0 0)
 		)

@@ -3094,7 +3094,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(in_pos_files yes)
-		(dnp yes)
+		(dnp no)
 		(uuid "7039ae29-720d-4312-ae61-095fccfdab2e")
 		(property "Reference" "Bat1"
 			(at 40.64 120.56 0)
@@ -3658,7 +3658,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(in_pos_files yes)
-		(dnp no)
+		(dnp yes)
 		(uuid "be994ffe-705d-49ff-819a-ff346735b1ae")
 		(property "Reference" "J1"
 			(at 74.295 118.75 0)
